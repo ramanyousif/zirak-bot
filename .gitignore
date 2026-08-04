@@ -1,0 +1,6 @@
+python/
+downloads/
+*.session
+*.session-journal
+data/
+scratch/

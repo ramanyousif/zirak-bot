@@ -1,0 +1,22 @@
+{
+  "token": "ENV_BOT_TOKEN",
+  "botUsername": "mygrouppatwmat_bot",
+  "groqApiKey": "ENV_GROQ_API_KEY",
+  "groqModel": "llama-3.3-70b-versatile",
+  "geminiApiKey": "",
+  "geminiModel": "gemini-2.0-flash",
+  "ollamaBaseUrl": "http://127.0.0.1:11434",
+  "ollamaApiPath": "/api/chat",
+  "ollamaModel": "qwen2.5:7b",
+  "ollamaTimeoutSeconds": 120,
+  "aiEnabled": true,
+  "aiInPrivateChats": true,
+  "aiHistoryMessages": 10,
+  "deleteLinks": true,
+  "deleteBadWords": true,
+  "deleteNSFW": true,
+  "floodLimit": 5,
+  "floodWindowSeconds": 10,
+  "maxWarnings": 3,
+  "autoMuteMinutes": 60
+}

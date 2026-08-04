@@ -1,0 +1,19 @@
+{
+  "token": "PUT_YOUR_BOTFATHER_TOKEN_HERE",
+  "botUsername": "mygrouppatwmat_bot",
+  "aiProvider": "ollama",
+  "ollamaBaseUrl": "http://127.0.0.1:11434",
+  "ollamaApiPath": "/api/chat",
+  "ollamaModel": "llama3.2",
+  "aiEnabled": true,
+  "aiInPrivateChats": true,
+  "aiInGroupsOnlyWhenMentioned": true,
+  "aiHistoryMessages": 8,
+  "aiSystemPrompt": "تۆ یاریدەدەری زیرەکی گروپی تیلیگرامیت. بە کوردی سۆرانی، بە شێوەیەکی کورت و بەڕێز وەڵام بدەوە. ئەگەر پرسیارەکە ڕوون نەبوو، پرسیاری ڕوونکەرەوە بکە.",
+  "deleteLinks": true,
+  "floodLimit": 5,
+  "floodWindowSeconds": 10,
+  "maxWarnings": 3,
+  "autoMuteMinutes": 60,
+  "welcomeMessage": "بەخێربێیت {name}. تکایە یاساکانی گروپ بخوێنەوە."
+}
