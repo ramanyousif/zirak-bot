@@ -13,6 +13,15 @@ from pathlib import Path
 import groq
 
 # ═══════════════════════════════════════════════════════════════════════════════
+#  پشتیوانی ئۆتۆماتیکی پروکسی PythonAnywhere
+# ═══════════════════════════════════════════════════════════════════════════════
+if os.path.exists("/home/ramanyousif2002") or "PYTHONANYWHERE_DOMAIN" in os.environ:
+    os.environ["HTTP_PROXY"] = "http://proxy.server:3128"
+    os.environ["HTTPS_PROXY"] = "http://proxy.server:3128"
+    os.environ["http_proxy"] = "http://proxy.server:3128"
+    os.environ["https_proxy"] = "http://proxy.server:3128"
+
+# ═══════════════════════════════════════════════════════════════════════════════
 #  ڕێکخستنەکان (Credentials & Configuration)
 # ═══════════════════════════════════════════════════════════════════════════════
 
