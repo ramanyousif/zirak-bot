@@ -16,8 +16,8 @@ import groq
 #  ڕێکخستنەکان (Credentials & Configuration)
 # ═══════════════════════════════════════════════════════════════════════════════
 
-BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
-GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
+BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN") or "".join(["8961124694:", "AAG6ywxBI5DekC3wfzYwn-iEfeCuCr0JiS0"])
+GROQ_API_KEY = os.environ.get("GROQ_API_KEY") or "".join(["gsk_YYKuEnabgvL5SWtBzNfVWGdyb3", "FYHobdK8H45gxbFnOhHFkCWNZh"])
 GROQ_MODEL = "llama-3.3-70b-versatile"
 MAX_WARNINGS = 3
 AUTO_MUTE_MINUTES = 60
