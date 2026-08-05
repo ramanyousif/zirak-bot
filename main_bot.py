@@ -101,12 +101,14 @@ SMART_REPLIES = [
     }
 ]
 
-# ───── 🛡️ فیلتەری زۆر توندی جنێو و وشەی ناشرین ─────
-BAD_WORDS_LIST = [
-    'قن', 'قنت', 'قنم', 'قنی', 'قوز', 'قۆز', 'قوزت', 'قوزم', 'قوزی',
-    'کیر', 'کێرم', 'کیرم', 'کێر', 'کێری', 'کێرت', 'کیرت',
-    'گواو', 'گوخۆر', 'گوو', 'گو', 'گوت', 'گووم', 'گواوی',
-    'حیز', 'سۆزانی', 'سێکس', 'پۆرن', 'قەحبە', 'گەواد', 'پینتی', 'بێنامووس', 'نامووس',
+# ───── 🛡️ فیلتەری زۆر توندی جنێو و وشەی ناشرین (Precise Word Boundaries) ─────
+STANDALONE_BAD_WORDS = ['قن', 'گو', 'کیر', 'کێر', 'تڕ']
+
+EXPLICIT_BAD_WORDS = [
+    'قنت', 'قنم', 'قنی', 'قوز', 'قۆز', 'قوزت', 'قوزم', 'قوزی',
+    'کێرم', 'کیرم', 'کێری', 'کێرت', 'کیرت',
+    'گواو', 'گوخۆر', 'گوو', 'گوت', 'گووم', 'گواوی',
+    'حیز', 'سۆزانی', 'سێکس', 'پۆرن', 'قەحبە', 'گەواد', 'پینتی', 'بێنامووس',
     'ئەتگێم', 'ئەگێم', 'بگێم', 'بگێرم', 'تێبگێم', 'گاین', 'تێگەین', 'بگێین', 'داپێنم',
     'fuck', 'f\\s*u\\s*c\\s*k', 'shit', 'bitch', 'asshole', 'dick', 'pussy',
     'bastard', 'whore', 'slut', 'nigger', 'faggot', 'cock', 'cunt',
@@ -247,13 +249,19 @@ def contains_bad_word(text: str) -> bool:
     if not text:
         return False
     norm = normalize_kurdish(text)
+    words = norm.split()
 
-    # 1. Check direct profanity substring
-    for w in BAD_WORDS_LIST:
+    # 1. Standalone short bad word check
+    for w in words:
+        if w in STANDALONE_BAD_WORDS:
+            return True
+
+    # 2. Explicit profanity check
+    for w in EXPLICIT_BAD_WORDS:
         if w in norm:
             return True
 
-    # 2. Check profanity phrases via regex
+    # 3. Regex phrase check
     for phrase in BAD_PHRASES_LIST:
         if re.search(phrase, norm, re.IGNORECASE):
             return True
@@ -261,15 +269,15 @@ def contains_bad_word(text: str) -> bool:
     return False
 
 def contains_link_or_spam(msg: dict, text: str) -> bool:
-    if text and re.search(r'(?i)\bhttps?://|\bt\.me/|\btelegram\.me/|\bwww\.|@[a-zA-Z0-9_]{4,}', text):
+    if text and re.search(r'(?i)\bhttps?://|\bt\.me/|\btelegram\.me/|\bwww\.', text):
         return True
     if msg.get("entities"):
         for e in msg["entities"]:
-            if e.get("type") in ["url", "text_link", "mention"]:
+            if e.get("type") in ["url", "text_link"]:
                 return True
     if msg.get("caption_entities"):
         for e in msg["caption_entities"]:
-            if e.get("type") in ["url", "text_link", "mention"]:
+            if e.get("type") in ["url", "text_link"]:
                 return True
     if msg.get("reply_markup"):
         return True
