@@ -101,7 +101,6 @@ SMART_REPLIES = [
     }
 ]
 
-# ───── 🛡️ فیلتەری زۆر توندی جنێو و وشەی ناشرین ─────
 BAD_WORDS_LIST = [
     'قن', 'قنت', 'قنم', 'قنی', 'قوز', 'قۆز', 'قوزت', 'قوزم', 'قوزی',
     'کیر', 'کێرم', 'کیرم', 'کێر', 'کێری', 'کێرت', 'کیرت',
@@ -210,7 +209,7 @@ def get_ai_reply(chat_id: int, user_id: int, question: str, is_private: bool = F
         return smart
 
     if not groq_client:
-        return "گیان لە خزمەتتم، چی پرسیارێکت هەیە فەرموو؟ 😊"
+        return "گیان لە خزمەتتم، چی پرسیارێکت هەبێت فەرموو؟ 😊"
 
     system_prompt = PRIVATE_AI_SYSTEM_PROMPT if is_private else GROUP_AI_SYSTEM_PROMPT
     max_tokens = 250 if is_private else 120
@@ -238,17 +237,12 @@ def contains_bad_word(text: str) -> bool:
     if not text:
         return False
     lower = text.lower()
-    
-    # 1. Check direct profanity substring
     for w in BAD_WORDS_LIST:
         if w in lower:
             return True
-            
-    # 2. Check profanity phrases via regex
     for phrase in BAD_PHRASES_LIST:
         if re.search(phrase, lower, re.IGNORECASE):
             return True
-            
     return False
 
 def contains_link_or_spam(msg: dict, text: str) -> bool:
@@ -282,18 +276,33 @@ def handle_message(msg: dict):
     user_id = from_user["id"]
     display_name = get_display_name(from_user)
 
-    # 🌸 بەخێرهاتنی ئەندامانی نوێ
-    if "new_chat_members" in msg:
-        for member in msg["new_chat_members"]:
-            if member.get("is_bot"):
-                continue
-            m_name = get_display_name(member)
-            w_msg = random.choice(WELCOME_MESSAGES).format(name=m_name)
-            send_message(chat_id, w_msg, msg_id)
+    # 🌸 بەخێرهاتنی زۆر جوانی ئەندامانی نوێ (Handling all join update fields)
+    new_members = []
+    if "new_chat_members" in msg and msg["new_chat_members"]:
+        new_members.extend(msg["new_chat_members"])
+    if "new_chat_participant" in msg and msg["new_chat_participant"]:
+        new_members.append(msg["new_chat_participant"])
+    if "new_chat_member" in msg and msg["new_chat_member"]:
+        new_members.append(msg["new_chat_member"])
+
+    seen_ids = set()
+    unique_members = []
+    for m in new_members:
+        if isinstance(m, dict) and m.get("id") and m["id"] not in seen_ids:
+            seen_ids.add(m["id"])
+            unique_members.append(m)
+
+    for member in unique_members:
+        if member.get("is_bot"):
+            continue
+        m_name = get_display_name(member)
+        w_msg = random.choice(WELCOME_MESSAGES).format(name=m_name)
+        # Send direct welcome message to group without reply_to restriction
+        send_message(chat_id, w_msg, reply_to=0)
 
     text = msg.get("text") or msg.get("caption") or ""
 
-    # 💬 ۱. چاتی شەخسی (Private Chat) - وەڵامدانەوەی زیرەکانەی هەموو پرسیارێک بە کوردی
+    # 💬 ۱. چاتی شەخسی (Private Chat)
     if chat_type == "private":
         if text:
             reply = get_ai_reply(chat_id, user_id, text, is_private=True)
@@ -329,7 +338,7 @@ def handle_message(msg: dict):
                 send_message(chat_id, f"🚫 {display_name} بەهۆی دووبارەکردنەوەی سەرپێچی، بۆ ماوەی ١ کاتژمێر لە چاتکردن بێدەنگ کرا!")
             return
 
-    # 💬 ۳. وەڵامدانەوەی AI لە گروپدا (بەمەرجی بێدەنگبوون کاتێک مرۆڤ ریپڵای مرۆڤ دەکات)
+    # 💬 ۳. وەڵامدانەوەی AI لە گروپدا
     if text:
         should_ai_reply = True
         if "reply_to_message" in msg and msg["reply_to_message"]:
