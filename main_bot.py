@@ -263,20 +263,18 @@ def contains_link_or_spam(msg: dict, text: str) -> bool:
     return False
 
 def handle_message(msg: dict):
-    if "chat" not in msg or "from" not in msg:
+    if not msg or "chat" not in msg:
         return
+
     chat = msg["chat"]
     chat_type = chat["type"]
     if chat_type not in ["group", "supergroup", "private"]:
         return
 
     chat_id = chat["id"]
-    msg_id = msg["message_id"]
-    from_user = msg["from"]
-    user_id = from_user["id"]
-    display_name = get_display_name(from_user)
+    msg_id = msg.get("message_id", 0)
 
-    # 🌸 بەخێرهاتنی زۆر جوانی ئەندامانی نوێ (Handling all join update fields)
+    # 🌸 بەخێرهاتنی ئەندامانی نوێ (خێرا و بەر لە هەر تێپەڕینێک)
     new_members = []
     if "new_chat_members" in msg and msg["new_chat_members"]:
         new_members.extend(msg["new_chat_members"])
@@ -286,20 +284,22 @@ def handle_message(msg: dict):
         new_members.append(msg["new_chat_member"])
 
     seen_ids = set()
-    unique_members = []
-    for m in new_members:
-        if isinstance(m, dict) and m.get("id") and m["id"] not in seen_ids:
-            seen_ids.add(m["id"])
-            unique_members.append(m)
+    for member in new_members:
+        if isinstance(member, dict):
+            m_id = member.get("id")
+            if m_id and m_id not in seen_ids:
+                seen_ids.add(m_id)
+                if not member.get("is_bot"):
+                    m_name = get_display_name(member)
+                    w_msg = random.choice(WELCOME_MESSAGES).format(name=m_name)
+                    send_message(chat_id, w_msg, reply_to=0)
 
-    for member in unique_members:
-        if member.get("is_bot"):
-            continue
-        m_name = get_display_name(member)
-        w_msg = random.choice(WELCOME_MESSAGES).format(name=m_name)
-        # Send direct welcome message to group without reply_to restriction
-        send_message(chat_id, w_msg, reply_to=0)
+    if "from" not in msg or not msg["from"]:
+        return
 
+    from_user = msg["from"]
+    user_id = from_user["id"]
+    display_name = get_display_name(from_user)
     text = msg.get("text") or msg.get("caption") or ""
 
     # 💬 ۱. چاتی شەخسی (Private Chat)
