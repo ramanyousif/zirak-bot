@@ -134,8 +134,18 @@ $BadWordsList = @(
 $BadPhrasesList = @(
     'لە\s*دایکت', 'دایکت\s*بگێم', 'دایکت\s*گێم', 'دایکت\s*بێ', 'دایکت\s*بم', 'دایکت\s*بکێم',
     'لە\s*خوشکت', 'خوشکت\s*بگێم', 'خوشکت\s*گێم', 'خوشکت\s*بێ', 'خوشکت\s*بم', 'خوشکت\s*بکێم',
-    'لە\s*عەرزت', 'لە\s*قەبرت', 'داپیرەت\s*بم', 'بێ\s*دایک', 'بێ\s*خوشک', 'سەر\s*قن', 'کێرم\s*لە'
+    'لە\s*عەرزت', 'لە\s*قەبرت', 'داپیرەت\s*بم', 'بێ\s*دایک', 'بێ\s*خوشک', 'سەر\s*قن', 'کێرم\s*لە',
+    'لە\s*قنت', 'لە\s*قنم', 'لە\s*قنی', 'لە\s*قوزت', 'لە\s*قوزم'
 )
+
+function Normalize-KurdishText {
+    param([string]$Text)
+    if ([string]::IsNullOrWhiteSpace($Text)) { return "" }
+    $t = $Text.Replace("ك", "ک").Replace("ي", "ی").Replace("ى", "ی").Replace("ئـ", "ئ")
+    $t = $t -replace '[\u200b\u200c\u200d\u200e\u200f\ufeff]+', ' '
+    $t = $t -replace '\s+', ' '
+    return $t.Trim().ToLowerInvariant()
+}
 
 # ═══════════════════════════════════════════════════════════════════════════════
 #  بەشی ٣: ستەیت و تیلیگرام
@@ -362,7 +372,7 @@ Strict Rules:
 function Test-ContainsBadWord {
     param([string]$Text)
     if ([string]::IsNullOrWhiteSpace($Text)) { return $false }
-    $cleanText = $Text.ToLowerInvariant()
+    $cleanText = Normalize-KurdishText $Text
     
     foreach ($p in $script:BadWordsList) {
         if ($cleanText.Contains($p.ToLowerInvariant())) { return $true }
@@ -406,10 +416,6 @@ function Test-ContainsLinkOrSpam {
         return $true
     }
 
-    if ($Msg.ContainsKey("forward_date") -or $Msg.ContainsKey("forward_from") -or $Msg.ContainsKey("forward_from_chat") -or $Msg.ContainsKey("forward_sender_name")) {
-        return $true
-    }
-
     return $false
 }
 
@@ -419,30 +425,33 @@ function Test-ContainsLinkOrSpam {
 
 function Invoke-HandleMessage {
     param([hashtable]$Message)
-    if (-not $Message.ContainsKey("chat") -or -not $Message.ContainsKey("from")) { return }
+    if ($null -eq $Message -or -not $Message.ContainsKey("chat")) { return }
     $chat = $Message["chat"]
     $chatType = $chat["type"]
     if ($chatType -ne "group" -and $chatType -ne "supergroup" -and $chatType -ne "private") { return }
     $chatId = [Int64]$chat["id"]
     $msgId = [int]$Message["message_id"]
-    $from = $Message["from"]
-    $userId = [Int64]$from["id"]
-    $displayName = Get-DisplayName $from
 
     if ($Message.ContainsKey("new_chat_members")) {
         foreach ($member in $Message["new_chat_members"]) {
             if ($member.ContainsKey("is_bot") -and $member["is_bot"]) { continue }
             $mName = Get-DisplayName $member
             $wMsg = (Get-RandomItem $script:WelcomeMessages).Replace("{name}", $mName)
-            Send-TgMessage $chatId $wMsg $msgId
+            Send-TgMessage $chatId $wMsg -ReplyTo 0
         }
     }
+
+    if (-not $Message.ContainsKey("from") -or $null -eq $Message["from"]) { return }
+
+    $from = $Message["from"]
+    $userId = [Int64]$from["id"]
+    $displayName = Get-DisplayName $from
 
     $text = ""
     if ($Message.ContainsKey("text")) { $text = [string]$Message["text"] }
     elseif ($Message.ContainsKey("caption")) { $text = [string]$Message["caption"] }
 
-    # 💬 ۱. چاتی شەخسی (Private Chat) - وەڵامدانەوەی زیرەکانەی هەموو پرسیارێک بە کوردی
+    # 💬 ۱. چاتی شەخسی (Private Chat)
     if ($chatType -eq "private") {
         if (-not [string]::IsNullOrWhiteSpace($text)) {
             $reply = Get-AIReply $chatId $userId $text -IsPrivate $true

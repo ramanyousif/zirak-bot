@@ -101,6 +101,7 @@ SMART_REPLIES = [
     }
 ]
 
+# ───── 🛡️ فیلتەری زۆر توندی جنێو و وشەی ناشرین ─────
 BAD_WORDS_LIST = [
     'قن', 'قنت', 'قنم', 'قنی', 'قوز', 'قۆز', 'قوزت', 'قوزم', 'قوزی',
     'کیر', 'کێرم', 'کیرم', 'کێر', 'کێری', 'کێرت', 'کیرت',
@@ -116,8 +117,17 @@ BAD_WORDS_LIST = [
 BAD_PHRASES_LIST = [
     r'لە\s*دایکت', r'دایکت\s*بگێم', r'دایکت\s*گێم', r'دایکت\s*بێ', r'دایکت\s*بم', r'دایکت\s*بکێم',
     r'لە\s*خوشکت', r'خوشکت\s*بگێم', r'خوشکت\s*گێم', r'خوشکت\s*بێ', r'خوشکت\s*بم', r'خوشکت\s*بکێم',
-    r'لە\s*عەرزت', r'لە\s*قەبرت', r'داپیرەت\s*بم', r'بێ\s*دایک', r'بێ\s*خوشک', r'سەر\s*قن', r'کێرم\s*لە'
+    r'لە\s*عەرزت', r'لە\s*قەبرت', r'داپیرەت\s*بم', r'بێ\s*دایک', r'بێ\s*خوشک', r'سەر\s*قن', r'کێرم\s*لە',
+    r'لە\s*قنت', r'لە\s*قنم', r'لە\s*قنی', r'لە\s*قوزت', r'لە\s*قوزم'
 ]
+
+def normalize_kurdish(text: str) -> str:
+    if not text:
+        return ""
+    t = text.replace("ك", "ک").replace("ي", "ی").replace("ى", "ی").replace("ئـ", "ئ")
+    t = re.sub(r'[\u200b\u200c\u200d\u200e\u200f\ufeff]+', ' ', t)
+    t = re.sub(r'\s+', ' ', t)
+    return t.strip().lower()
 
 # ═══════════════════════════════════════════════════════════════════════════════
 #  تەواوی فەنکشنەکانی تیلیگرام
@@ -236,13 +246,18 @@ def get_ai_reply(chat_id: int, user_id: int, question: str, is_private: bool = F
 def contains_bad_word(text: str) -> bool:
     if not text:
         return False
-    lower = text.lower()
+    norm = normalize_kurdish(text)
+
+    # 1. Check direct profanity substring
     for w in BAD_WORDS_LIST:
-        if w in lower:
+        if w in norm:
             return True
+
+    # 2. Check profanity phrases via regex
     for phrase in BAD_PHRASES_LIST:
-        if re.search(phrase, lower, re.IGNORECASE):
+        if re.search(phrase, norm, re.IGNORECASE):
             return True
+
     return False
 
 def contains_link_or_spam(msg: dict, text: str) -> bool:
@@ -258,8 +273,6 @@ def contains_link_or_spam(msg: dict, text: str) -> bool:
                 return True
     if msg.get("reply_markup"):
         return True
-    if any(k in msg for k in ["forward_date", "forward_from", "forward_from_chat", "forward_sender_name"]):
-        return True
     return False
 
 def handle_message(msg: dict):
@@ -274,7 +287,7 @@ def handle_message(msg: dict):
     chat_id = chat["id"]
     msg_id = msg.get("message_id", 0)
 
-    # 🌸 بەخێرهاتنی ئەندامانی نوێ (خێرا و بەر لە هەر تێپەڕینێک)
+    # 🌸 بەخێرهاتنی ئەندامانی نوێ
     new_members = []
     if "new_chat_members" in msg and msg["new_chat_members"]:
         new_members.extend(msg["new_chat_members"])
