@@ -50,7 +50,7 @@ def save_state():
     with open(STATE_FILE, "w", encoding="utf-8") as f:
         json.dump(state_data, f, ensure_ascii=False, indent=2)
 
-AI_SYSTEM_PROMPT = """
+GROUP_AI_SYSTEM_PROMPT = """
 You are Zirak (زیرەک), a friendly, intelligent young Kurdish guy in a Telegram group chat.
 You speak only in short, natural, human Sorani Kurdish (کوردیی سۆرانی ئاسایی چات).
 
@@ -59,6 +59,17 @@ Strict Rules:
 2. Respond in 1 short, natural sentence as a real Kurdish friend in chat.
 3. Use everyday Kurdish chat phrases (وەڵا, گیان, کاکە, ئاساییە, عافیەت بێت, هههه).
 4. Be witty, friendly, and respectful.
+"""
+
+PRIVATE_AI_SYSTEM_PROMPT = """
+You are Zirak (زیرەک), an exceptionally smart, polite, helpful, and knowledgeable AI assistant in private chat on Telegram.
+You speak fluently in natural, beautiful, warm Sorani Kurdish (کوردیی سۆرانی ئاسایی و بەڕێز).
+
+Strict Rules for Private Chat:
+1. Answer any question (educational, general knowledge, technical, social, daily advice) intelligently, clearly, and helpfully.
+2. Maintain a warm, friendly, respectful tone (گیان, بەڕێزم, کاکە, خوشکم).
+3. Always respond in natural Sorani Kurdish without literal translation mistakes.
+4. Keep answers concise, informative, and direct.
 """
 
 WELCOME_MESSAGES = [
@@ -86,16 +97,17 @@ SMART_REPLIES = [
     },
     {
         "patterns": ["ناوی تۆ چییە", "ناوت چییە", "تۆ کێیت", "کێیت"],
-        "replies": ["من ناوم زیرەکە! هاوڕێیەکی دڵسۆزی کوردم لەم گروپەدا 🤖❤️", "من زیرەکم! خزمەتکاری ئێوەی ئازیز 🌸"]
+        "replies": ["من ناوم زیرەکە! هاوڕێیەکی دڵسۆزی کوردم 🤖❤️", "من زیرەکم! خزمەتکاری ئێوەی ئازیز 🌸"]
     }
 ]
 
+# ───── 🛡️ فیلتەری زۆر توندی جنێو و وشەی ناشرین ─────
 BAD_WORDS_LIST = [
     'قن', 'قنت', 'قنم', 'قنی', 'قوز', 'قۆز', 'قوزت', 'قوزم', 'قوزی',
     'کیر', 'کێرم', 'کیرم', 'کێر', 'کێری', 'کێرت', 'کیرت',
-    'گواو', 'گوخۆر', 'گوو', 'گو', 'گوت', 'گووم',
+    'گواو', 'گوخۆر', 'گوو', 'گو', 'گوت', 'گووم', 'گواوی',
     'حیز', 'سۆزانی', 'سێکس', 'پۆرن', 'قەحبە', 'گەواد', 'پینتی', 'بێنامووس', 'نامووس',
-    'ئەتگێم', 'ئەگێم', 'بگێم', 'بگێرم',
+    'ئەتگێم', 'ئەگێم', 'بگێم', 'بگێرم', 'تێبگێم', 'گاین', 'تێگەین', 'بگێین', 'داپێنم',
     'fuck', 'f\\s*u\\s*c\\s*k', 'shit', 'bitch', 'asshole', 'dick', 'pussy',
     'bastard', 'whore', 'slut', 'nigger', 'faggot', 'cock', 'cunt',
     'motherf', 'stfu', 'porn', 'xxx', 'nude', 'naked',
@@ -103,9 +115,9 @@ BAD_WORDS_LIST = [
 ]
 
 BAD_PHRASES_LIST = [
-    r'لە\s*دایکت', r'دایکت\s*بگێم', r'دایکت\s*گێم', r'دایکت\s*بێ', r'دایکت\s*بم',
-    r'لە\s*خوشکت', r'خوشکت\s*بگێم', r'خوشکت\s*گێم', r'خوشکت\s*بێ', r'خوشکت\s*بم',
-    r'لە\s*عەرزت', r'لە\s*قەبرت', r'داپیرەت\s*بم'
+    r'لە\s*دایکت', r'دایکت\s*بگێم', r'دایکت\s*گێم', r'دایکت\s*بێ', r'دایکت\s*بم', r'دایکت\s*بکێم',
+    r'لە\s*خوشکت', r'خوشکت\s*بگێم', r'خوشکت\s*گێم', r'خوشکت\s*بێ', r'خوشکت\s*بم', r'خوشکت\s*بکێم',
+    r'لە\s*عەرزت', r'لە\s*قەبرت', r'داپیرەت\s*بم', r'بێ\s*دایک', r'بێ\s*خوشک', r'سەر\s*قن', r'کێرم\s*لە'
 ]
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -192,22 +204,25 @@ def get_smart_reply(text: str):
                 return random.choice(entry["replies"])
     return None
 
-def get_ai_reply(chat_id: int, user_id: int, question: str) -> str:
+def get_ai_reply(chat_id: int, user_id: int, question: str, is_private: bool = False) -> str:
     smart = get_smart_reply(question)
     if smart:
         return smart
 
     if not groq_client:
-        return "گیان دووبارە ڕوونی بکەرەوە 😅"
+        return "گیان لە خزمەتتم، چی پرسیارێکت هەیە فەرموو؟ 😊"
+
+    system_prompt = PRIVATE_AI_SYSTEM_PROMPT if is_private else GROUP_AI_SYSTEM_PROMPT
+    max_tokens = 250 if is_private else 120
 
     try:
         res = groq_client.chat.completions.create(
             model=GROQ_MODEL,
             messages=[
-                {"role": "system", "content": AI_SYSTEM_PROMPT},
+                {"role": "system", "content": system_prompt},
                 {"role": "user", "content": question}
             ],
-            max_tokens=120,
+            max_tokens=max_tokens,
             temperature=0.5
         )
         answer = res.choices[0].message.content
@@ -217,18 +232,23 @@ def get_ai_reply(chat_id: int, user_id: int, question: str) -> str:
     except Exception as e:
         print("Groq Error:", e)
 
-    return "گیان دەتوانیت دووبارە ڕوونی بکەیتەوە؟ 😅"
+    return "گیان لە خزمەتتم، دەتوانیت دووبارە ڕوونی بکەیتەوە؟ 🌸"
 
 def contains_bad_word(text: str) -> bool:
     if not text:
         return False
     lower = text.lower()
-    for p in BAD_WORDS_LIST:
-        if re.search(re.escape(p), lower):
+    
+    # 1. Check direct profanity substring
+    for w in BAD_WORDS_LIST:
+        if w in lower:
             return True
+            
+    # 2. Check profanity phrases via regex
     for phrase in BAD_PHRASES_LIST:
-        if re.search(phrase, lower):
+        if re.search(phrase, lower, re.IGNORECASE):
             return True
+            
     return False
 
 def contains_link_or_spam(msg: dict, text: str) -> bool:
@@ -273,15 +293,15 @@ def handle_message(msg: dict):
 
     text = msg.get("text") or msg.get("caption") or ""
 
-    # چاتی تایبەت
+    # 💬 ۱. چاتی شەخسی (Private Chat) - وەڵامدانەوەی زیرەکانەی هەموو پرسیارێک بە کوردی
     if chat_type == "private":
         if text:
-            reply = get_ai_reply(chat_id, user_id, text)
+            reply = get_ai_reply(chat_id, user_id, text, is_private=True)
             if reply:
                 send_message(chat_id, reply, msg_id)
         return
 
-    # 🛡️ ئاسایشی توندی گروپ (بۆ نا-ئەدمین)
+    # 🛡️ ۲. ئاسایشی توندی گروپ (بۆ نا-ئەدمین)
     is_user_admin = is_admin(chat_id, user_id)
     if not is_user_admin:
         violation = ""
@@ -309,7 +329,7 @@ def handle_message(msg: dict):
                 send_message(chat_id, f"🚫 {display_name} بەهۆی دووبارەکردنەوەی سەرپێچی، بۆ ماوەی ١ کاتژمێر لە چاتکردن بێدەنگ کرا!")
             return
 
-    # 💬 وەڵامدانەوەی AI (بەمەرجی بێدەنگبوون کاتێک مرۆڤ ریپڵای مرۆڤ دەکات)
+    # 💬 ۳. وەڵامدانەوەی AI لە گروپدا (بەمەرجی بێدەنگبوون کاتێک مرۆڤ ریپڵای مرۆڤ دەکات)
     if text:
         should_ai_reply = True
         if "reply_to_message" in msg and msg["reply_to_message"]:
@@ -320,7 +340,7 @@ def handle_message(msg: dict):
                 should_ai_reply = False
 
         if should_ai_reply:
-            reply = get_ai_reply(chat_id, user_id, text)
+            reply = get_ai_reply(chat_id, user_id, text, is_private=False)
             if reply:
                 send_message(chat_id, reply, msg_id)
 
@@ -333,7 +353,7 @@ def main():
     offset = 0
     while True:
         try:
-            res = tg_call("getUpdates", {"offset": offset, "timeout": 30, "allowed_updates": ["message"]})
+            res = tg_call("getUpdates", {"offset": offset, "timeout": 30})
             if res and res.get("ok"):
                 for update in res["result"]:
                     offset = update["update_id"] + 1
