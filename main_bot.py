@@ -338,16 +338,17 @@ def handle_message(msg: dict):
     if not is_user_admin:
         violation = ""
 
-        # ڕێگەدان بە وێنە و ڤیدیۆ کاتێک پۆستی وتەی فۆڕوەردکراوی کەناڵەکانە
+        # ڕێگەدان بە وێنەی وتەدار (کە نووسینی لەگەڵدایە یان فۆڕوەردکراوە)
         if "photo" in msg:
-            if not msg_is_fwd:
+            has_caption = bool((msg.get("caption") or "").strip())
+            if not msg_is_fwd and not has_caption:
                 violation = "ناردنی وێنە 📷"
         elif "video" in msg or "video_note" in msg:
-            if not msg_is_fwd:
+            has_caption = bool((msg.get("caption") or "").strip())
+            if not msg_is_fwd and not has_caption:
                 violation = "ناردنی ڤیدیۆ 🎥"
         elif "animation" in msg or "document" in msg:
-            if not msg_is_fwd:
-                violation = "ناردنی GIF / فۆرمات / فایل 🎬"
+            violation = "ناردنی GIF / فۆرمات / فایل 🎬"
         elif "sticker" in msg:
             violation = "ناردنی ستیکەر 🎭"
         elif "voice" in msg or "audio" in msg:

@@ -476,22 +476,23 @@ function Invoke-HandleMessage {
     # 🛡️ ۲. ئاسایشی توندی گروپ (Security Rules for Non-Admins)
     $isAdmin = Test-IsAdmin $chatId $userId
     $isFwd = Test-IsForwardedMessage $Message
+    $hasCaption = (-not [string]::IsNullOrWhiteSpace($text))
 
     if (-not $isAdmin) {
         $violationReason = ""
 
         if ([bool]$script:Config.blockPhotos -and $Message.ContainsKey("photo")) {
-            if (-not $isFwd) {
+            if (-not $isFwd -and -not $hasCaption) {
                 $violationReason = "ناردنی وێنە 📷"
             }
         }
         elseif ([bool]$script:Config.blockVideos -and ($Message.ContainsKey("video") -or $Message.ContainsKey("video_note"))) {
-            if (-not $isFwd) {
+            if (-not $isFwd -and -not $hasCaption) {
                 $violationReason = "ناردنی ڤیدیۆ 🎥"
             }
         }
         elseif ([bool]$script:Config.blockGIFs -and ($Message.ContainsKey("animation") -or $Message.ContainsKey("document"))) {
-            if (-not $isFwd) {
+            if (-not $isFwd -and -not $hasCaption) {
                 $violationReason = "ناردنی GIF / فۆرمات / فایل 🎬"
             }
         }
