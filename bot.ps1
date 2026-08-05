@@ -119,11 +119,13 @@ $SmartReplies = @(
     }
 )
 
-$BadWordsList = @(
-    'قن', 'قنت', 'قنم', 'قنی', 'قوز', 'قۆز', 'قوزت', 'قوزم', 'قوزی',
-    'کیر', 'کێرم', 'کیرم', 'کێر', 'کێری', 'کێرت', 'کیرت',
+$StandaloneBadWords = @('قن', 'گو', 'کیر', 'کێر', 'تڕ')
+
+$ExplicitBadWords = @(
+    'قنت', 'قنم', 'قنی', 'قوز', 'قۆز', 'قوزت', 'قوزم', 'قوزی',
+    'کێرم', 'کیرم', 'کێری', 'کێرت', 'کیرت',
     'گواو', 'گوخۆر', 'گوو', 'گو', 'گوت', 'گووم', 'گواوی',
-    'حیز', 'سۆزانی', 'سێکس', 'پۆرن', 'قەحبە', 'گەواد', 'پینتی', 'بێنامووس', 'نامووس',
+    'حیز', 'سۆزانی', 'سێکس', 'پۆرن', 'قەحبە', 'گەواد', 'پینتی', 'بێنامووس',
     'ئەتگێم', 'ئەگێم', 'بگێم', 'بگێرم', 'تێبگێم', 'گاین', 'تێگەین', 'بگێین', 'داپێنم',
     'fuck', 'f\s*u\s*c\s*k', 'shit', 'bitch', 'asshole', 'dick', 'pussy',
     'bastard', 'whore', 'slut', 'nigger', 'faggot', 'cock', 'cunt',
@@ -145,6 +147,12 @@ function Normalize-KurdishText {
     $t = $t -replace '[\u200b\u200c\u200d\u200e\u200f\ufeff]+', ' '
     $t = $t -replace '\s+', ' '
     return $t.Trim().ToLowerInvariant()
+}
+
+function Test-IsForwardedMessage {
+    param([hashtable]$Msg)
+    if ($null -eq $Msg) { return $false }
+    return ($Msg.ContainsKey("forward_date") -or $Msg.ContainsKey("forward_from") -or $Msg.ContainsKey("forward_from_chat") -or $Msg.ContainsKey("forward_sender_name"))
 }
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -373,8 +381,13 @@ function Test-ContainsBadWord {
     param([string]$Text)
     if ([string]::IsNullOrWhiteSpace($Text)) { return $false }
     $cleanText = Normalize-KurdishText $Text
-    
-    foreach ($p in $script:BadWordsList) {
+    $words = $cleanText.Split(" ", [System.StringSplitOptions]::RemoveEmptyEntries)
+
+    foreach ($w in $words) {
+        if ($script:StandaloneBadWords -contains $w) { return $true }
+    }
+
+    foreach ($p in $script:ExplicitBadWords) {
         if ($cleanText.Contains($p.ToLowerInvariant())) { return $true }
     }
 
@@ -389,7 +402,7 @@ function Test-ContainsLinkOrSpam {
     param([hashtable]$Msg, [string]$Text)
 
     if (-not [string]::IsNullOrWhiteSpace($Text)) {
-        if ($Text -match '(?i)\bhttps?://|\bt\.me/|\btelegram\.me/|\bwww\.|@[a-zA-Z0-9_]{4,}') {
+        if ($Text -match '(?i)\bhttps?://|\bt\.me/|\btelegram\.me/|\bwww\.') {
             return $true
         }
     }
@@ -397,7 +410,7 @@ function Test-ContainsLinkOrSpam {
     if ($Msg.ContainsKey("entities") -and $null -ne $Msg["entities"]) {
         foreach ($e in $Msg["entities"]) {
             $type = [string]$e["type"]
-            if ($type -eq "url" -or $type -eq "text_link" -or $type -eq "mention") {
+            if ($type -eq "url" -or $type -eq "text_link") {
                 return $true
             }
         }
@@ -406,7 +419,7 @@ function Test-ContainsLinkOrSpam {
     if ($Msg.ContainsKey("caption_entities") -and $null -ne $Msg["caption_entities"]) {
         foreach ($e in $Msg["caption_entities"]) {
             $type = [string]$e["type"]
-            if ($type -eq "url" -or $type -eq "text_link" -or $type -eq "mention") {
+            if ($type -eq "url" -or $type -eq "text_link") {
                 return $true
             }
         }
@@ -462,18 +475,25 @@ function Invoke-HandleMessage {
 
     # 🛡️ ۲. ئاسایشی توندی گروپ (Security Rules for Non-Admins)
     $isAdmin = Test-IsAdmin $chatId $userId
+    $isFwd = Test-IsForwardedMessage $Message
 
     if (-not $isAdmin) {
         $violationReason = ""
 
         if ([bool]$script:Config.blockPhotos -and $Message.ContainsKey("photo")) {
-            $violationReason = "ناردنی وێنە 📷"
+            if (-not $isFwd) {
+                $violationReason = "ناردنی وێنە 📷"
+            }
         }
         elseif ([bool]$script:Config.blockVideos -and ($Message.ContainsKey("video") -or $Message.ContainsKey("video_note"))) {
-            $violationReason = "ناردنی ڤیدیۆ 🎥"
+            if (-not $isFwd) {
+                $violationReason = "ناردنی ڤیدیۆ 🎥"
+            }
         }
         elseif ([bool]$script:Config.blockGIFs -and ($Message.ContainsKey("animation") -or $Message.ContainsKey("document"))) {
-            $violationReason = "ناردنی GIF / فۆرمات / فایل 🎬"
+            if (-not $isFwd) {
+                $violationReason = "ناردنی GIF / فۆرمات / فایل 🎬"
+            }
         }
         elseif ([bool]$script:Config.blockStickers -and $Message.ContainsKey("sticker")) {
             $violationReason = "ناردنی ستیکەر 🎭"

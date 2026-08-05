@@ -107,7 +107,7 @@ STANDALONE_BAD_WORDS = ['قن', 'گو', 'کیر', 'کێر', 'تڕ']
 EXPLICIT_BAD_WORDS = [
     'قنت', 'قنم', 'قنی', 'قوز', 'قۆز', 'قوزت', 'قوزم', 'قوزی',
     'کێرم', 'کیرم', 'کێری', 'کێرت', 'کیرت',
-    'گواو', 'گوخۆر', 'گوو', 'گوت', 'گووم', 'گواوی',
+    'گواو', 'گوخۆر', 'گوو', 'گو', 'گوت', 'گووم', 'گواوی',
     'حیز', 'سۆزانی', 'سێکس', 'پۆرن', 'قەحبە', 'گەواد', 'پینتی', 'بێنامووس',
     'ئەتگێم', 'ئەگێم', 'بگێم', 'بگێرم', 'تێبگێم', 'گاین', 'تێگەین', 'بگێین', 'داپێنم',
     'fuck', 'f\\s*u\\s*c\\s*k', 'shit', 'bitch', 'asshole', 'dick', 'pussy',
@@ -130,6 +130,9 @@ def normalize_kurdish(text: str) -> str:
     t = re.sub(r'[\u200b\u200c\u200d\u200e\u200f\ufeff]+', ' ', t)
     t = re.sub(r'\s+', ' ', t)
     return t.strip().lower()
+
+def is_forwarded_message(msg: dict) -> bool:
+    return any(k in msg for k in ["forward_date", "forward_from", "forward_from_chat", "forward_sender_name"])
 
 # ═══════════════════════════════════════════════════════════════════════════════
 #  تەواوی فەنکشنەکانی تیلیگرام
@@ -251,17 +254,14 @@ def contains_bad_word(text: str) -> bool:
     norm = normalize_kurdish(text)
     words = norm.split()
 
-    # 1. Standalone short bad word check
     for w in words:
         if w in STANDALONE_BAD_WORDS:
             return True
 
-    # 2. Explicit profanity check
     for w in EXPLICIT_BAD_WORDS:
         if w in norm:
             return True
 
-    # 3. Regex phrase check
     for phrase in BAD_PHRASES_LIST:
         if re.search(phrase, norm, re.IGNORECASE):
             return True
@@ -333,14 +333,21 @@ def handle_message(msg: dict):
 
     # 🛡️ ۲. ئاسایشی توندی گروپ (بۆ نا-ئەدمین)
     is_user_admin = is_admin(chat_id, user_id)
+    msg_is_fwd = is_forwarded_message(msg)
+
     if not is_user_admin:
         violation = ""
+
+        # ڕێگەدان بە وێنە و ڤیدیۆ کاتێک پۆستی وتەی فۆڕوەردکراوی کەناڵەکانە
         if "photo" in msg:
-            violation = "ناردنی وێنە 📷"
+            if not msg_is_fwd:
+                violation = "ناردنی وێنە 📷"
         elif "video" in msg or "video_note" in msg:
-            violation = "ناردنی ڤیدیۆ 🎥"
+            if not msg_is_fwd:
+                violation = "ناردنی ڤیدیۆ 🎥"
         elif "animation" in msg or "document" in msg:
-            violation = "ناردنی GIF / فۆرمات / فایل 🎬"
+            if not msg_is_fwd:
+                violation = "ناردنی GIF / فۆرمات / فایل 🎬"
         elif "sticker" in msg:
             violation = "ناردنی ستیکەر 🎭"
         elif "voice" in msg or "audio" in msg:
