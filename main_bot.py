@@ -105,7 +105,7 @@ SMART_REPLIES = [
     }
 ]
 
-# ───── 📚 وتەی جوانی کاتژمێری (Hourly Quotes & Wisdoms) ─────
+# ───── 📚 وتەی جوانی کاتژمێری (Matching Clock Quotes & Wisdoms) ─────
 HOURLY_QUOTES = [
     "✨ *وتەی ڕۆژ:* مرۆڤ بە ڕەوشت و زانستەکەی گەورەیە، نەک بە سامانەکەی.",
     "🌸 *وتەی ڕۆژ:* هەرگیز ئومێد لەدەست مەدە، تاریكترین ساتەکانی شەو بەرهەمی سپێدەی ڕۆژێکی ڕووناکە.",
@@ -318,7 +318,7 @@ def contains_link_or_spam(msg: dict, text: str) -> bool:
     return False
 
 # ═══════════════════════════════════════════════════════════════════════════════
-#  تایبەتمەندیی نوێ: پەیامی کاتژمێری و نوێژەکان (Scheduler)
+#  تایبەتمەندیی نوێ: کاتژمێرە هاوشێوەکان (1:01, 2:02 ...) و کاتی نوێژەکان
 # ═══════════════════════════════════════════════════════════════════════════════
 
 LAST_HOURLY_CHECK = ""
@@ -360,21 +360,26 @@ def check_scheduled_tasks():
     # Kurdistan Timezone (UTC+3)
     now = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=3)))
     current_time_str = now.strftime("%H:%M")
-    current_hour_str = now.strftime("%Y-%m-%d %H:00")
+    current_stamp_str = now.strftime("%Y-%m-%d %H:%M")
 
-    # ١. پشکنینی پەیامی کاتژمێری ڕێک (سەرە کاتژمێر) + وتەی جوان
-    if now.minute == 0 and LAST_HOURLY_CHECK != current_hour_str:
-        LAST_HOURLY_CHECK = current_hour_str
+    # 1:01, 2:02, 3:03, 4:04, 5:05, 6:06, 7:07, 8:08, 9:09, 10:10, 11:11, 12:12
+    h12 = now.hour % 12
+    if h12 == 0:
+        h12 = 12
+
+    is_matching_time = (now.minute == h12) or (now.minute == now.hour)
+
+    # ١. پشکنینی کاتژمێرە هاوشێوەکان (1:01, 2:02 ... 11:11, 12:12) + وتەی جوان
+    if is_matching_time and LAST_HOURLY_CHECK != current_stamp_str:
+        LAST_HOURLY_CHECK = current_stamp_str
         
-        hour12 = now.hour % 12
-        if hour12 == 0:
-            hour12 = 12
         period = "شەو" if (now.hour >= 21 or now.hour < 5) else ("بەیانی" if now.hour < 12 else "پاشنوڕۆ")
         
         digits_kurdish = {"0":"۰", "1":"۱", "2":"۲", "3":"۳", "4":"٤", "5":"٥", "6":"٦", "7":"٧", "8":"٨", "9":"٩"}
-        k_hour = "".join([digits_kurdish.get(c, c) for c in str(hour12)])
+        k_hour = "".join([digits_kurdish.get(c, c) for c in str(h12)])
+        k_min = "".join([digits_kurdish.get(c, c) for c in f"{now.minute:02d}"])
         
-        clock_msg = f"🕐 **کاتژمێر {k_hour}:۰۰ ی {period}ە** ✨\n\n" + random.choice(HOURLY_QUOTES)
+        clock_msg = f"🕐 **کاتژمێر {k_hour}:{k_min} ی {period}ە** ✨\n\n" + random.choice(HOURLY_QUOTES)
         broadcast_to_groups(clock_msg)
 
     # ٢. پشکنینی کاتی نوێژەکان (بانگ و زیکر)
@@ -506,7 +511,7 @@ def main():
     offset = 0
     while True:
         try:
-            # 🕒 پشکنینی ئۆتۆماتیکیی کاتی نوێژەکان و کاتژمێرەکان
+            # 🕒 پشکنینی ئۆتۆماتیکیی کاتی نوێژەکان و کاتژمێرە هاوشێوەکان
             try:
                 check_scheduled_tasks()
             except Exception as e:
