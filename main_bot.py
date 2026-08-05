@@ -8,6 +8,7 @@ import re
 import json
 import time
 import random
+import datetime
 import requests
 from pathlib import Path
 import groq
@@ -42,9 +43,12 @@ if STATE_FILE.exists():
         with open(STATE_FILE, "r", encoding="utf-8") as f:
             state_data = json.load(f)
     except Exception:
-        state_data = {"warnings": {}, "ai_history": {}}
+        state_data = {"warnings": {}, "ai_history": {}, "groups": {}}
 else:
-    state_data = {"warnings": {}, "ai_history": {}}
+    state_data = {"warnings": {}, "ai_history": {}, "groups": {}}
+
+if "groups" not in state_data:
+    state_data["groups"] = {}
 
 def save_state():
     with open(STATE_FILE, "w", encoding="utf-8") as f:
@@ -101,6 +105,36 @@ SMART_REPLIES = [
     }
 ]
 
+# ───── 📚 وتەی جوانی کاتژمێری (Hourly Quotes & Wisdoms) ─────
+HOURLY_QUOTES = [
+    "✨ *وتەی ڕۆژ:* مرۆڤ بە ڕەوشت و زانستەکەی گەورەیە، نەک بە سامانەکەی.",
+    "🌸 *وتەی ڕۆژ:* هەرگیز ئومێد لەدەست مەدە، تاریكترین ساتەکانی شەو بەرهەمی سپێدەی ڕۆژێکی ڕووناکە.",
+    "🌟 *وتەی ڕۆژ:* گەورەترین سەرمایەی مرۆڤ کاتە، بە شتی بەسوود بەسەری ببە.",
+    "🌺 *وتەی ڕۆژ:* دڵخۆشی بەخشین بە دەوروبەرت، خۆشبەختیت بۆ دەگەڕێنێتەوە.",
+    "🌿 *وتەی ڕۆژ:* وتەی جوان و زەردەخەنەیەک دەتوانێت دڵی هەزاران کەس بکاتەوە.",
+    "💐 *وتەی ڕۆژ:* سەرکەوتن بەرهەمی کۆڵنەدان و هەوڵدانی بەردەوامە.",
+    "☀️ *وتەی ڕۆژ:* بە باشی ڕوانین بۆ ئایندە، هەنگاوی یەکەمی سەرکەوتنە.",
+    "🕊️ *وتەی ڕۆژ:* لە هەموو بارودۆخێکدا سوپاسگوزاری پەروەردگار بە."
+]
+
+# ───── 🕌 زیکر و بیریاری کاتی نوێژەکان (Prayer Messages) ─────
+PRAYER_MESSAGES = {
+    "Fajr": "🕌 **کاتی نوێژی بەیانییە (فەجر)** 🌸\n\n﴿إِنَّ قُرْآنَ الْفَجْرِ كَانَ مَشْهُودًا﴾\nسەڵاوات لەسەر پێغەمبەری خوا (ﷺ) لێبدەن: أللَّهُمَّ صَلِّ عَلَى مُحَمَّدٍ وَعَلَى آلِ مُحَمَّدٍ 🤍",
+    "Dhuhr": "🕌 **کاتی نوێژی نیوەڕۆیە (ژوهر)** 🌸\n\nزیکری پیرۆز: سُبْحَانَ اللَّهِ وَبِحَمْدِهِ ، سُبْحَانَ اللَّهِ الْعَظِيمِ ✨",
+    "Asr": "🕌 **کاتی نوێژی عەسردایە** 🌸\n\nزیکری پیرۆز: لا إِلَهَ إِلا اللَّهُ وَحْدَهُ لا شَرِيكَ لَهُ، لَهُ الْمُلْكُ وَلَهُ الْحَمْدُ وَهُوَ عَلَى كُلِّ شَيْءٍ قَدِيرٌ 🌿",
+    "Maghrib": "🕌 **کاتی نوێژی ئێوارەیە (مەغریب)** 🌸\n\nزیکری پیرۆز: أَسْتَغْفِرُ اللَّهَ وَأَتُوبُ إِلَيْهِ 💐",
+    "Isha": "🕌 **کاتی نوێژی عیشایە (خەوتنان)** 🌸\n\nزیکری پیرۆز: لا حَوْلَ وَلا قُوَّةَ إِلا بِاللَّهِ الْعَلِيِّ الْعَظِيمِ 🌟"
+}
+
+# کاتی نوێژەکان بۆ کوردستان (Erbil / Kurdistan UTC+3)
+LIVE_PRAYER_TIMES = {
+    "Fajr": "03:37",
+    "Dhuhr": "12:10",
+    "Asr": "15:57",
+    "Maghrib": "19:05",
+    "Isha": "20:36"
+}
+
 # ───── 🛡️ فیلتەری زۆر توندی جنێو و وشەی ناشرین (Precise Word Boundaries) ─────
 STANDALONE_BAD_WORDS = ['قن', 'گو', 'کیر', 'کێر', 'تڕ']
 
@@ -152,7 +186,7 @@ if me_data and me_data.get("ok"):
     BOT_ID = me_data["result"]["id"]
 
 def send_message(chat_id: int, text: str, reply_to: int = 0):
-    body = {"chat_id": chat_id, "text": text, "disable_web_page_preview": True}
+    body = {"chat_id": chat_id, "text": text, "disable_web_page_preview": True, "parse_mode": "Markdown"}
     if reply_to > 0:
         body["reply_to_message_id"] = reply_to
         body["allow_sending_without_reply"] = True
@@ -283,6 +317,81 @@ def contains_link_or_spam(msg: dict, text: str) -> bool:
         return True
     return False
 
+# ═══════════════════════════════════════════════════════════════════════════════
+#  تایبەتمەندیی نوێ: پەیامی کاتژمێری و نوێژەکان (Scheduler)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+LAST_HOURLY_CHECK = ""
+LAST_PRAYER_CHECK = ""
+LAST_API_FETCH_DAY = ""
+
+def fetch_live_prayer_times():
+    global LIVE_PRAYER_TIMES, LAST_API_FETCH_DAY
+    today_str = datetime.datetime.now().strftime("%Y-%m-%d")
+    if LAST_API_FETCH_DAY == today_str:
+        return
+    try:
+        r = requests.get("http://api.aladhan.com/v1/timingsByCity?city=Erbil&country=Iraq&method=3", timeout=10)
+        data = r.json()
+        if data and data.get("code") == 200:
+            timings = data["data"]["timings"]
+            LIVE_PRAYER_TIMES["Fajr"] = timings.get("Fajr", "03:37")
+            LIVE_PRAYER_TIMES["Dhuhr"] = timings.get("Dhuhr", "12:10")
+            LIVE_PRAYER_TIMES["Asr"] = timings.get("Asr", "15:57")
+            LIVE_PRAYER_TIMES["Maghrib"] = timings.get("Maghrib", "19:05")
+            LIVE_PRAYER_TIMES["Isha"] = timings.get("Isha", "20:36")
+            LAST_API_FETCH_DAY = today_str
+    except Exception as e:
+        print("Aladhan API fetch exception:", e)
+
+def broadcast_to_groups(text: str):
+    if not text:
+        return
+    groups = state_data.get("groups", {})
+    for g_id_str in list(groups.keys()):
+        try:
+            send_message(int(g_id_str), text)
+        except Exception as e:
+            print(f"Broadcast error for {g_id_str}:", e)
+
+def check_scheduled_tasks():
+    global LAST_HOURLY_CHECK, LAST_PRAYER_CHECK
+    
+    # Kurdistan Timezone (UTC+3)
+    now = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=3)))
+    current_time_str = now.strftime("%H:%M")
+    current_hour_str = now.strftime("%Y-%m-%d %H:00")
+
+    # ١. پشکنینی پەیامی کاتژمێری ڕێک (سەرە کاتژمێر) + وتەی جوان
+    if now.minute == 0 and LAST_HOURLY_CHECK != current_hour_str:
+        LAST_HOURLY_CHECK = current_hour_str
+        
+        hour12 = now.hour % 12
+        if hour12 == 0:
+            hour12 = 12
+        period = "شەو" if (now.hour >= 21 or now.hour < 5) else ("بەیانی" if now.hour < 12 else "پاشنوڕۆ")
+        
+        digits_kurdish = {"0":"۰", "1":"۱", "2":"۲", "3":"۳", "4":"٤", "5":"٥", "6":"٦", "7":"٧", "8":"٨", "9":"٩"}
+        k_hour = "".join([digits_kurdish.get(c, c) for c in str(hour12)])
+        
+        clock_msg = f"🕐 **کاتژمێر {k_hour}:۰۰ ی {period}ە** ✨\n\n" + random.choice(HOURLY_QUOTES)
+        broadcast_to_groups(clock_msg)
+
+    # ٢. پشکنینی کاتی نوێژەکان (بانگ و زیکر)
+    fetch_live_prayer_times()
+    for prayer_name, prayer_time in LIVE_PRAYER_TIMES.items():
+        if current_time_str == prayer_time:
+            p_check_key = f"{now.strftime('%Y-%m-%d')} {prayer_name}"
+            if LAST_PRAYER_CHECK != p_check_key:
+                LAST_PRAYER_CHECK = p_check_key
+                prayer_msg = PRAYER_MESSAGES.get(prayer_name, "")
+                if prayer_msg:
+                    broadcast_to_groups(prayer_msg)
+
+# ═══════════════════════════════════════════════════════════════════════════════
+#  بەڕێوەبردنی پەیامەکان (Message Processor)
+# ═══════════════════════════════════════════════════════════════════════════════
+
 def handle_message(msg: dict):
     if not msg or "chat" not in msg:
         return
@@ -294,6 +403,13 @@ def handle_message(msg: dict):
 
     chat_id = chat["id"]
     msg_id = msg.get("message_id", 0)
+
+    # تۆمارکردنی ئایدی گروپەکە تاوەکو کاتی کاتژمێر و نوێژەکانی بۆ ڕەوانە بکرێت
+    if chat_type in ["group", "supergroup"]:
+        g_key = str(chat_id)
+        if g_key not in state_data["groups"]:
+            state_data["groups"][g_key] = True
+            save_state()
 
     # 🌸 بەخێرهاتنی ئەندامانی نوێ
     new_members = []
@@ -338,7 +454,6 @@ def handle_message(msg: dict):
     if not is_user_admin:
         violation = ""
 
-        # ڕێگەدان بە وێنەی وتەدار (کە نووسینی لەگەڵدایە یان فۆڕوەردکراوە)
         if "photo" in msg:
             has_caption = bool((msg.get("caption") or "").strip())
             if not msg_is_fwd and not has_caption:
@@ -391,7 +506,13 @@ def main():
     offset = 0
     while True:
         try:
-            res = tg_call("getUpdates", {"offset": offset, "timeout": 30})
+            # 🕒 پشکنینی ئۆتۆماتیکیی کاتی نوێژەکان و کاتژمێرەکان
+            try:
+                check_scheduled_tasks()
+            except Exception as e:
+                print("Scheduled task error:", e)
+
+            res = tg_call("getUpdates", {"offset": offset, "timeout": 5})
             if res and res.get("ok"):
                 for update in res["result"]:
                     offset = update["update_id"] + 1
