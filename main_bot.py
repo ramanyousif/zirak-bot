@@ -521,21 +521,7 @@ def handle_message(msg: dict):
     if not is_user_admin:
         violation = ""
 
-        if "photo" in msg:
-            has_caption = bool((msg.get("caption") or "").strip())
-            if not msg_is_fwd and not has_caption:
-                violation = "ناردنی وێنە 📷"
-        elif "video" in msg or "video_note" in msg:
-            has_caption = bool((msg.get("caption") or "").strip())
-            if not msg_is_fwd and not has_caption:
-                violation = "ناردنی ڤیدیۆ 🎥"
-        elif "animation" in msg or "document" in msg:
-            violation = "ناردنی GIF / فۆرمات / فایل 🎬"
-        elif "sticker" in msg:
-            violation = "ناردنی ستیکەر 🎭"
-        elif "voice" in msg or "audio" in msg:
-            violation = "ناردنی فایلی دەنگی 🎙️"
-        elif contains_link_or_spam(msg, text):
+        if contains_link_or_spam(msg, text):
             violation = "ناردنی لینک، پۆست یان ریپڵای دوگمەدار 🔗"
         elif contains_bad_word(text):
             violation = "قسەی ناشرین و جنێو 🤬"
