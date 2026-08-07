@@ -430,9 +430,12 @@ def check_scheduled_tasks():
 
     is_matching_time = (now.minute == h12)
 
-    # ١. پشکنینی کاتژمێرە هاوشێوەکان (1:01, 2:02 ... 11:11, 12:12) + وتەی جوان
-    if is_matching_time and LAST_HOURLY_CHECK != current_stamp_str:
+    # ١. پشکنینی کاتژمێرە هاوشێوەکان (1:01, 2:02 ... 11:11, 12:12) + یەک وتەی جوان
+    last_saved_clock = state_data.get("last_clock", "")
+    if is_matching_time and last_saved_clock != current_stamp_str and LAST_HOURLY_CHECK != current_stamp_str:
         LAST_HOURLY_CHECK = current_stamp_str
+        state_data["last_clock"] = current_stamp_str
+        save_state()
         
         period = "شەو" if (now.hour >= 21 or now.hour < 5) else ("بەیانی" if now.hour < 12 else "پاشنیوەڕۆ")
         
@@ -449,8 +452,11 @@ def check_scheduled_tasks():
     for prayer_name, prayer_time in LIVE_PRAYER_TIMES.items():
         if current_time_str == prayer_time:
             p_check_key = f"{now.strftime('%Y-%m-%d')} {prayer_name}"
-            if LAST_PRAYER_CHECK != p_check_key:
+            last_saved_prayer = state_data.get("last_prayer", "")
+            if LAST_PRAYER_CHECK != p_check_key and last_saved_prayer != p_check_key:
                 LAST_PRAYER_CHECK = p_check_key
+                state_data["last_prayer"] = p_check_key
+                save_state()
                 prayer_msg = PRAYER_MESSAGES.get(prayer_name, "")
                 if prayer_msg:
                     broadcast_to_groups(prayer_msg)
