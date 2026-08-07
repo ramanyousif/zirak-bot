@@ -43,12 +43,14 @@ if STATE_FILE.exists():
         with open(STATE_FILE, "r", encoding="utf-8") as f:
             state_data = json.load(f)
     except Exception:
-        state_data = {"warnings": {}, "ai_history": {}, "groups": {}}
+        state_data = {"warnings": {}, "ai_history": {}, "groups": {}, "sent_quotes": []}
 else:
-    state_data = {"warnings": {}, "ai_history": {}, "groups": {}}
+    state_data = {"warnings": {}, "ai_history": {}, "groups": {}, "sent_quotes": []}
 
 if "groups" not in state_data:
     state_data["groups"] = {}
+if "sent_quotes" not in state_data:
+    state_data["sent_quotes"] = []
 
 def save_state():
     with open(STATE_FILE, "w", encoding="utf-8") as f:
@@ -106,16 +108,75 @@ SMART_REPLIES = [
 ]
 
 # ───── 📚 وتەی جوانی کاتژمێری (Matching Clock Quotes & Wisdoms) ─────
-HOURLY_QUOTES = [
-    "✨ *وتەی ڕۆژ:* مرۆڤ بە ڕەوشت و زانستەکەی گەورەیە، نەک بە سامانەکەی.",
-    "🌸 *وتەی ڕۆژ:* هەرگیز ئومێد لەدەست مەدە، تاریكترین ساتەکانی شەو بەرهەمی سپێدەی ڕۆژێکی ڕووناکە.",
-    "🌟 *وتەی ڕۆژ:* گەورەترین سەرمایەی مرۆڤ کاتە، بە شتی بەسوود بەسەری ببە.",
-    "🌺 *وتەی ڕۆژ:* دڵخۆشی بەخشین بە دەوروبەرت، خۆشبەختیت بۆ دەگەڕێنێتەوە.",
-    "🌿 *وتەی ڕۆژ:* وتەی جوان و زەردەخەنەیەک دەتوانێت دڵی هەزاران کەس بکاتەوە.",
-    "💐 *وتەی ڕۆژ:* سەرکەوتن بەرهەمی کۆڵنەدان و هەوڵدانی بەردەوامە.",
-    "☀️ *وتەی ڕۆژ:* بە باشی ڕوانین بۆ ئایندە، هەنگاوی یەکەمی سەرکەوتنە.",
-    "🕊️ *وتەی ڕۆژ:* لە هەموو بارودۆخێکدا سوپاسگوزاری پەروەردگار بە."
+FALLBACK_QUOTES = [
+    "✨ *وتەی کاتژمێر:* مرۆڤ بە ڕەوشت و زانستەکەی گەورەیە، نەک بە سامانەکەی.",
+    "🌸 *وتەی کاتژمێر:* هەرگیز ئومێد لەدەست مەدە، تاریكترین ساتەکانی شەو بەرهەمی سپێدەی ڕۆژێکی ڕووناکە.",
+    "🌟 *وتەی کاتژمێر:* گەورەترین سەرمایەی مرۆڤ کاتە، بە شتی بەسوود بەسەری ببە.",
+    "🌺 *وتەی کاتژمێر:* دڵخۆشی بەخشین بە دەوروبەرت، خۆشبەختیت بۆ دەگەڕێنێتەوە.",
+    "🌿 *وتەی کاتژمێر:* وتەی جوان و زەردەخەنەیەک دەتوانێت دڵی هەزاران کەس بکاتەوە.",
+    "💐 *وتەی کاتژمێر:* سەرکەوتن بەرهەمی کۆڵنەدان و هەوڵدانی بەردەوامە.",
+    "☀️ *وتەی کاتژمێر:* بە باشی ڕوانین بۆ ئایندە، هەنگاوی یەکەمی سەرکەوتنە.",
+    "🕊️ *وتەی کاتژمێر:* لە هەموو بارودۆخێکدا سوپاسگوزاری پەروەردگار بە.",
+    "✨ *وتەی کاتژمێر:* ژیان وەک ئاوێنەیە، ئەگەر لێی خەندە بکەیت، ئەویش خەندەت بۆ دەکاتەوە.",
+    "🌸 *وتەی کاتژمێر:* گەورەیی لەوەدا نییە کە هەرگیز نەکەویت، بەڵکو لەوەدایە دوای هەر کەوتنێک هەستیتەوە.",
+    "🌟 *وتەی کاتژمێر:* باوەڕت بە خۆت هەبێت، چونکە تۆ دەتوانیت شتە مەزنەکان ئەنجام بدەیت.",
+    "🌺 *وتەی کاتژمێر:* ئەو کەسەی دەیەوێت بگاتە لوتکە، نابێت لە ماندووبوون بترسێت.",
+    "🌿 *وتەی کاتژمێر:* هەموو ڕۆژێک هەلێکی نوێیە بۆ باشتربوون.",
+    "💐 *وتەی کاتژمێر:* زانست تاکە سامانێکە کە بە بەخشین زیاد دەکات.",
+    "☀️ *وتەی کاتژمێر:* لێبوردەیی نیشانەی هێزە، نەک بێهێزی.",
+    "🕊️ *وتەی کاتژمێر:* هەر شتێک لە دڵەوە بێت، دەگاتە دڵ.",
+    "✨ *وتەی کاتژمێر:* سادەیی جوانترین جۆری پێشکەوتنە.",
+    "🌸 *وتەی کاتژمێر:* ڕۆژانە هەوڵبدە ببیتە هۆکاری خەندەی کەسێک.",
+    "🌟 *وتەی کاتژمێر:* بیرکردنەوەی ئەرێنی، کلیلی دەرگا داخراوەکانە.",
+    "🌺 *وتەی کاتژمێر:* هەڵەکانمان وانەی ژیانن، نەک کۆتایی ڕێگاکە.",
+    "🌿 *وتەی کاتژمێر:* چاکە بکە و لەبیری بکە، ڕۆژێک دێت بەری دەبینیت.",
+    "💐 *وتەی کاتژمێر:* بەختەوەری لە ناخەوە هەڵدەقوڵێت، نەک لە دەوروبەرەوە.",
+    "☀️ *وتەی کاتژمێر:* هیچ کاتێک درەنگ نییە بۆ خەونێکی نوێ.",
+    "🕊️ *وتەی کاتژمێر:* ئارامگرتن تاڵە، بەڵام بەرهەمەکەی شیرینە.",
+    "✨ *وتەی کاتژمێر:* ڕێزگرتن لە بەرامبەر، ڕێزگرتنە لە خودی خۆت.",
+    "🌸 *وتەی کاتژمێر:* وشەی جوان وەک بارانی بەهارە، ڕۆح دەژێنێتەوە.",
+    "🌟 *وتەی کاتژمێر:* هەنگاوی بچووک بەردەوام، باشترە لە هەنگاوی گەورەی پچڕ پچڕ.",
+    "🌺 *وتەی کاتژمێر:* کاتە سەختەکان کەسە بەهێزەکان دروست دەکەن.",
+    "🌿 *وتەی کاتژمێر:* ڕاستگۆیی گەورەترین سەرمایەی مرۆڤە.",
+    "💐 *وتەی کاتژمێر:* ژیان کورتە، بە سادەیی و جوانی بژی.",
+    "☀️ *وتەی کاتژمێر:* گەورەترین سەرکەوتن ئەوەیە کە زاڵ بیت بەسەر ناخی خۆتدا.",
+    "🕊️ *وتەی کاتژمێر:* هیوا تاکە چرایەکە کە لە تاریکیدا ڕووناکی دەدات."
 ]
+
+def generate_unique_quote():
+    # Try groq API for unique quote
+    try:
+        now = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=3)))
+        time_context = "شەو" if (now.hour >= 21 or now.hour < 5) else ("بەیانی" if now.hour < 12 else "پاشنیوەڕۆ")
+        time_str = f"{now.hour}:{now.minute:02d}"
+        
+        if groq_client:
+            res = groq_client.chat.completions.create(
+                model=GROQ_MODEL,
+                messages=[
+                    {"role": "system", "content": "You are a Kurdish AI. Provide EXACTLY ONE unique, beautiful, profound Sorani Kurdish quote, wisdom, or proverb. Never provide explanations, just the quote text. Make it poetic and meaningful. Do not repeat common quotes."},
+                    {"role": "user", "content": f"Please give me a unique Sorani Kurdish quote suitable for this time of day ({time_context} at {time_str})."}
+                ],
+                max_tokens=150,
+                temperature=0.9
+            )
+            ans = res.choices[0].message.content.strip()
+            ans = ans.replace('"', '').replace("'", "")
+            if ans:
+                return f"✨ *وتەی کاتژمێر:*\n\n{ans}"
+    except Exception as e:
+        print("Groq Quote Error:", e)
+        
+    # Fallback Mechanism
+    available_quotes = [q for q in FALLBACK_QUOTES if q not in state_data["sent_quotes"]]
+    if not available_quotes:
+        state_data["sent_quotes"] = []
+        available_quotes = FALLBACK_QUOTES
+        
+    chosen = random.choice(available_quotes)
+    state_data["sent_quotes"].append(chosen)
+    save_state()
+    return chosen
 
 # ───── 🕌 زیکر و بیریاری کاتی نوێژەکان (Prayer Messages) ─────
 PRAYER_MESSAGES = {
@@ -367,19 +428,20 @@ def check_scheduled_tasks():
     if h12 == 0:
         h12 = 12
 
-    is_matching_time = (now.minute == h12) or (now.minute == now.hour)
+    is_matching_time = (now.minute == h12)
 
     # ١. پشکنینی کاتژمێرە هاوشێوەکان (1:01, 2:02 ... 11:11, 12:12) + وتەی جوان
     if is_matching_time and LAST_HOURLY_CHECK != current_stamp_str:
         LAST_HOURLY_CHECK = current_stamp_str
         
-        period = "شەو" if (now.hour >= 21 or now.hour < 5) else ("بەیانی" if now.hour < 12 else "پاشنوڕۆ")
+        period = "شەو" if (now.hour >= 21 or now.hour < 5) else ("بەیانی" if now.hour < 12 else "پاشنیوەڕۆ")
         
         digits_kurdish = {"0":"۰", "1":"۱", "2":"۲", "3":"۳", "4":"٤", "5":"٥", "6":"٦", "7":"٧", "8":"٨", "9":"٩"}
         k_hour = "".join([digits_kurdish.get(c, c) for c in str(h12)])
         k_min = "".join([digits_kurdish.get(c, c) for c in f"{now.minute:02d}"])
         
-        clock_msg = f"🕐 **کاتژمێر {k_hour}:{k_min} ی {period}ە** ✨\n\n" + random.choice(HOURLY_QUOTES)
+        quote = generate_unique_quote()
+        clock_msg = f"🕐 **کاتژمێر {k_hour}:{k_min} ی {period}ە** ✨\n\n{quote}"
         broadcast_to_groups(clock_msg)
 
     # ٢. پشکنینی کاتی نوێژەکان (بانگ و زیکر)
