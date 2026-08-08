@@ -417,6 +417,9 @@ def get_ai_reply(chat_id: int, user_id: int, question: str, is_private: bool = F
         return smart
 
     if not groq_client:
+        # لە گروپدا ئەگەر AI نەبوو، بێدەنگ بمێنە
+        if not is_private:
+            return None
         return "گیان لە خزمەتتم، چی پرسیارێکت هەبێت فەرموو؟ 😊"
 
     system_prompt = PRIVATE_AI_SYSTEM_PROMPT if is_private else GROUP_AI_SYSTEM_PROMPT
@@ -430,7 +433,7 @@ def get_ai_reply(chat_id: int, user_id: int, question: str, is_private: bool = F
                 {"role": "user", "content": question}
             ],
             max_tokens=max_tokens,
-            temperature=0.5
+            temperature=0.7
         )
         answer = res.choices[0].message.content
         answer = clean_ai_text(answer)
@@ -439,6 +442,9 @@ def get_ai_reply(chat_id: int, user_id: int, question: str, is_private: bool = F
     except Exception as e:
         print("Groq Error:", e)
 
+    # لە گروپدا ئەگەر وەڵامی باش نەبوو، بێدەنگ بمێنە
+    if not is_private:
+        return None
     return "گیان لە خزمەتتم، دەتوانیت دووبارە ڕوونی بکەیتەوە؟ 🌸"
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -583,26 +589,19 @@ def handle_message(msg: dict):
                 send_message(chat_id, f"🚫 {display_name} بەهۆی دووبارەکردنەوەی سەرپێچی، بۆ ماوەی ١ کاتژمێر لە چاتکردن بێدەنگ کرا!")
             return
 
-    # 💬 ۳. وەڵامدانەوەی AI - تەنها کاتێک ڕیپڵای بۆ بووت بکرێت یان ناوی باس بکرێت
+    # 💬 ۳. وەڵامدانەوەی AI بۆ هەموو کەسێک بەپێی قسەکەی
     if text:
-        should_ai_reply = False
-
-        # ئەگەر ڕیپڵای بۆ پەیامی بووتەکە بکرێت
+        # ئەگەر دوو کەسی ئاسایی ڕیپڵای بۆ یەکتر دەکەن، بووت تێکەڵ نەبێت
         if "reply_to_message" in msg and msg["reply_to_message"]:
             target_user = msg["reply_to_message"].get("from", {})
             target_id = target_user.get("id", 0)
-            if target_id == BOT_ID:
-                should_ai_reply = True
+            is_target_bot = target_user.get("is_bot", False)
+            if target_id != BOT_ID and not is_target_bot:
+                return  # دوو مرۆڤن قسەیان لەگەڵ یەکە، بووت تێکەڵ نابێت
 
-        # ئەگەر ناوی بووتەکەی تێدا بێت
-        text_lower = text.lower()
-        if "زیرەک" in text_lower or "zirak" in text_lower:
-            should_ai_reply = True
-
-        if should_ai_reply:
-            reply = get_ai_reply(chat_id, user_id, text, is_private=False)
-            if reply:
-                send_message(chat_id, reply, msg_id)
+        reply = get_ai_reply(chat_id, user_id, text, is_private=False)
+        if reply:
+            send_message(chat_id, reply, msg_id)
 
 # ═══════════════════════════════════════════════════════════════════════════════
 #  Flask Webhook App - ئەمە PythonAnywhere بۆ هەمیشە زیندوویی دەهێڵێت!
