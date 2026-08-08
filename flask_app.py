@@ -583,15 +583,21 @@ def handle_message(msg: dict):
                 send_message(chat_id, f"🚫 {display_name} بەهۆی دووبارەکردنەوەی سەرپێچی، بۆ ماوەی ١ کاتژمێر لە چاتکردن بێدەنگ کرا!")
             return
 
-    # 💬 ۳. وەڵامدانەوەی AI
+    # 💬 ۳. وەڵامدانەوەی AI - تەنها کاتێک ڕیپڵای بۆ بووت بکرێت یان ناوی باس بکرێت
     if text:
-        should_ai_reply = True
+        should_ai_reply = False
+
+        # ئەگەر ڕیپڵای بۆ پەیامی بووتەکە بکرێت
         if "reply_to_message" in msg and msg["reply_to_message"]:
             target_user = msg["reply_to_message"].get("from", {})
             target_id = target_user.get("id", 0)
-            is_target_bot = target_user.get("is_bot", False)
-            if target_id != BOT_ID and not is_target_bot:
-                should_ai_reply = False
+            if target_id == BOT_ID:
+                should_ai_reply = True
+
+        # ئەگەر ناوی بووتەکەی تێدا بێت
+        text_lower = text.lower()
+        if "زیرەک" in text_lower or "zirak" in text_lower:
+            should_ai_reply = True
 
         if should_ai_reply:
             reply = get_ai_reply(chat_id, user_id, text, is_private=False)
