@@ -604,10 +604,27 @@ def handle_message(msg: dict):
             send_message(chat_id, reply, msg_id)
 
 # ═══════════════════════════════════════════════════════════════════════════════
-#  Flask Webhook App - ئەمە PythonAnywhere بۆ هەمیشە زیندوویی دەهێڵێت!
+#  Flask Webhook App + Background Scheduler Thread
 # ═══════════════════════════════════════════════════════════════════════════════
 
+import threading
+
 app = Flask(__name__)
+
+# ───── Background Thread بۆ کاتژمێر و نوێژەکان ─────
+def scheduler_loop():
+    """ئەم لووپە هەر ٣٠ چرکە پشکنین دەکات بۆ کاتژمێرەکان و نوێژەکان"""
+    while True:
+        try:
+            check_scheduled_tasks()
+        except Exception as e:
+            print(f"Scheduler error: {e}")
+        time.sleep(30)
+
+# دەستپێکردنی Background Thread
+scheduler_thread = threading.Thread(target=scheduler_loop, daemon=True)
+scheduler_thread.start()
+print("✅ Scheduler thread started!")
 
 @app.route("/")
 def home():
@@ -618,15 +635,26 @@ def webhook():
     """وەرگرتنی پەیامەکان لە تیلیگرام بە ڕێگای Webhook"""
     try:
         data = flask_request.get_json(force=True)
-        if data and "message" in data:
-            handle_message(data["message"])
+        if data:
+            if "message" in data:
+                handle_message(data["message"])
+            # بۆ بەخێرهاتنی ئەندامانی نوێ لە ڤێرژنە نوێکانی تیلیگرام
+            if "chat_member" in data:
+                cm = data["chat_member"]
+                if cm.get("new_chat_member", {}).get("status") == "member":
+                    chat_id = cm.get("chat", {}).get("id")
+                    user_info = cm.get("new_chat_member", {}).get("user", {})
+                    if chat_id and user_info and not user_info.get("is_bot"):
+                        m_name = get_display_name(user_info)
+                        w_msg = random.choice(WELCOME_MESSAGES).format(name=m_name)
+                        send_message(chat_id, w_msg)
     except Exception as e:
         print(f"Webhook error: {e}")
     return "OK", 200
 
 @app.route("/cron", methods=["GET"])
 def cron_endpoint():
-    """ئەم ئێندپۆینتە ڕۆژانە/هەر خولەکێ بانگ دەکرێت بۆ کاتژمێر و نوێژ"""
+    """بۆ پشکنینی ئۆتۆماتیکی کاتژمێر و نوێژ"""
     try:
         check_scheduled_tasks()
         return "Cron OK", 200
@@ -636,9 +664,12 @@ def cron_endpoint():
 
 @app.route("/set_webhook", methods=["GET"])
 def set_webhook():
-    """دانانی Webhook بۆ تیلیگرام"""
+    """دانانی Webhook بۆ تیلیگرام - لەگەڵ chat_member بۆ بەخێرهاتن"""
     webhook_url = f"https://{PA_USERNAME}.pythonanywhere.com/{WEBHOOK_SECRET}"
-    result = tg_call("setWebhook", {"url": webhook_url})
+    result = tg_call("setWebhook", {
+        "url": webhook_url,
+        "allowed_updates": ["message", "chat_member"]
+    })
     return f"Webhook set result: {result}", 200
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -672,3 +703,4 @@ def main_polling():
 
 if __name__ == "__main__":
     main_polling()
+
