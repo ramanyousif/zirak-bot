@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-بوتی زیرەک - Zirak Telegram Bot (Flask Webhook - 24/7 PythonAnywhere)
-ئەم فایلە بووتەکە بە Webhook بەکار دەبات و PythonAnywhere بۆ هەمیشە زیندوویی دەهێڵێتەوە.
+بوتی زیرەک - Zirak Telegram Bot (24/7 Cloud Ready - Flask & Webhook)
 """
 
 import os
@@ -10,6 +9,7 @@ import json
 import time
 import random
 import datetime
+import threading
 import requests
 from pathlib import Path
 from flask import Flask, request as flask_request
@@ -17,14 +17,20 @@ from flask import Flask, request as flask_request
 # ═══════════════════════════════════════════════════════════════════════════════
 #  پشتیوانی ئۆتۆماتیکی پروکسی PythonAnywhere
 # ═══════════════════════════════════════════════════════════════════════════════
-if os.path.exists("/home/ramanyousif2002") or "PYTHONANYWHERE_DOMAIN" in os.environ:
+IS_PYTHONANYWHERE = os.path.exists("/home/ramanyousif2002") or "PYTHONANYWHERE_DOMAIN" in os.environ
+PROXIES = {
+    "http": "http://proxy.server:3128",
+    "https": "http://proxy.server:3128"
+} if IS_PYTHONANYWHERE else None
+
+if IS_PYTHONANYWHERE:
     os.environ["HTTP_PROXY"] = "http://proxy.server:3128"
     os.environ["HTTPS_PROXY"] = "http://proxy.server:3128"
     os.environ["http_proxy"] = "http://proxy.server:3128"
     os.environ["https_proxy"] = "http://proxy.server:3128"
 
 # ═══════════════════════════════════════════════════════════════════════════════
-#  ڕێکخستنەکان
+#  ڕێکخستنەکان (Credentials & Configuration)
 # ═══════════════════════════════════════════════════════════════════════════════
 
 BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN") or "".join(["8961124694:", "AAG6ywxBI5DekC3wfzYwn-iEfeCuCr0JiS0"])
@@ -37,21 +43,21 @@ PA_USERNAME = "ramanyousif2002"
 
 API_BASE = f"https://api.telegram.org/bot{BOT_TOKEN}"
 
-groq_client = None
-try:
-    import groq
-    groq_client = groq.Groq(api_key=GROQ_API_KEY) if GROQ_API_KEY else None
-except ImportError:
-    pass
-
 # ═══════════════════════════════════════════════════════════════════════════════
-#  داتای سەیڤکراو
+#  داتای سەیڤکراو (State Management)
 # ═══════════════════════════════════════════════════════════════════════════════
 
-STATE_FILE = Path("/home/ramanyousif2002/zirak-bot/data/state.json") if os.path.exists("/home/ramanyousif2002") else Path("data/state.json")
+STATE_FILE = Path("/home/ramanyousif2002/zirak-bot/data/state.json") if IS_PYTHONANYWHERE else Path("data/state.json")
 STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
 
-DEFAULT_STATE = {"warnings": {}, "ai_history": {}, "groups": {}, "sent_quotes": [], "last_clock": "", "last_prayer": ""}
+DEFAULT_STATE = {
+    "warnings": {},
+    "ai_history": {},
+    "groups": {},
+    "sent_quotes": [],
+    "last_clock": "",
+    "last_prayer": ""
+}
 
 if STATE_FILE.exists():
     try:
@@ -74,62 +80,118 @@ def save_state():
         print(f"Save state error: {e}")
 
 # ═══════════════════════════════════════════════════════════════════════════════
-#  سیستەمی AI
+#  سیستەمی ژیریی دەستکردی کوردی (Super Intelligent Kurdish AI)
 # ═══════════════════════════════════════════════════════════════════════════════
 
-GROUP_AI_SYSTEM_PROMPT = """
-You are Zirak (زیرەک), a friendly, intelligent young Kurdish guy in a Telegram group chat.
-You speak only in short, natural, human Sorani Kurdish (کوردیی سۆرانی ئاسایی چات).
-
-Strict Rules:
-1. NEVER translate machine English into Kurdish. Never use broken literal dictionary words.
-2. Respond in 1 short, natural sentence as a real Kurdish friend in chat.
-3. Use everyday Kurdish chat phrases (وەڵا, گیان, کاکە, ئاساییە, عافیەت بێت, هههه).
-4. Be witty, friendly, and respectful.
-"""
-
 PRIVATE_AI_SYSTEM_PROMPT = """
-You are Zirak (زیرەک), an exceptionally smart, polite, helpful, and knowledgeable AI assistant in private chat on Telegram.
-You speak fluently in natural, beautiful, warm Sorani Kurdish (کوردیی سۆرانی ئاسایی و بەڕێز).
+تۆ ناوت "زیرەک"ە (Zirak Bot). تۆ زیرەکترین و بەتواناترین یاریدەدەری ژیریی دەستکردی کوردییت (Super Intelligent Kurdish AI).
+تۆ وەڵامی هەموو جۆرە پرسیارێک بە شێوەیەکی زۆر ورد، زانستی، ڕوون، بەسوود و جوان بە زمانی کوردیی سۆرانی پوخت و پاراو دەدەیتەوە.
 
-Strict Rules for Private Chat:
-1. Answer any question (educational, general knowledge, technical, social, daily advice) intelligently, clearly, and helpfully.
-2. Maintain a warm, friendly, respectful tone (گیان, بەڕێزم, کاکە, خوشکم).
-3. Always respond in natural Sorani Kurdish without literal translation mistakes.
-4. Keep answers concise, informative, and direct.
+ڕێساکانی وەڵامدانەوە:
+١. دەتوانیت لە هەموو بوارێکدا وەڵام بدەیتەوە: زانست، تەکنەلۆژیا، مێژوو، ئایین، کۆمپیوتەر و پرۆگرامین، وەرگێڕان، نووسینی نامە و وتار، پەروەردە، بیرکاری، تەندروستی، یان چاتی ئاسایی هاوڕێیانە.
+٢. هەمیشە وەڵامەکانت بە کوردیی سۆرانی بنووسە، بەبێ هەڵەی وەرگێڕانی ووشە بە ووشە.
+٣. شێوازی قسەکردنت با هاوڕێیانە، بەڕێز و پڕ لە زانیاری بەسوود بێت (کاکە گیان, گوڵم, بەڕێزم).
+٤. هەرگیز وەڵامی تەکراری ڕۆبۆتی مەدەرەوە. ئەگەر شتێکت لێ پرسی ڕاستەوخۆ وەڵامی پرسیارەکە بدەرەوە.
 """
 
-WELCOME_MESSAGES = [
-    "🌸 سڵاو {name} گیان! زۆر بەخێر هاتیت بۆ گروپەکەمان 🎉\n\nگەرمترین بەخێرهاتنت لێ دەکەین، هیواین کاتێکی زۆر خۆش و بەسوود لەگەڵمان بەسەر بپەڕێنیت! ✨❤️",
-    "👑 سڵاو لە {name} خۆشەویست! زۆر بەخێربێیت بۆ نێو خێزانە چاک و ئازیزەکەمان 🌟\n\nخۆشحالین بە هاتنت، بە هیوای کاتی خۆش و سەرکەوتووانە! 🌺",
-    "✨ سڵاو و دەرەکەت خۆش {name} گیان! بەخێربێیت بەسەر چاوانمان 💐\n\nگروپ بە هاتنی تۆ ڕووناک بووەوە! 🎉"
-]
+GROUP_AI_SYSTEM_PROMPT = """
+تۆ "زیرەک"ی، گەنجێکی زۆر زیرەک، قسەخۆش و دڵسۆزیت لەناو گروپی چاتی کوردی لە تیلیگرام.
+بە کوردیی سۆرانی ئاسایی، هاوڕێیانە، ڕەوان و کورت (١ بۆ ٢ ڕستە) بەپێی قسەی کەسەکە وەڵام بدەرەوە.
+"""
+
+def clean_ai_text(text: str) -> str:
+    if not text:
+        return ""
+    clean = re.sub(r'(?im)^\s*@?[a-zA-Z0-9_]+:\s*', '', text)
+    clean = re.sub(r'\([^()\r\n]*\)', '', clean)
+    return clean.strip()
+
+def call_ai(system_prompt: str, user_prompt: str, history: list = None, max_tokens: int = 500) -> str:
+    """بانگکردنی ڕاستەوخۆی Groq API بە پرۆکسی پارێزراو"""
+    messages = [{"role": "system", "content": system_prompt}]
+    if history:
+        for item in history[-6:]:
+            messages.append(item)
+    messages.append({"role": "user", "content": user_prompt})
+
+    url = "https://api.groq.com/openai/v1/chat/completions"
+    headers = {
+        "Authorization": f"Bearer {GROQ_API_KEY}",
+        "Content-Type": "application/json"
+    }
+    payload = {
+        "model": GROQ_MODEL,
+        "messages": messages,
+        "max_tokens": max_tokens,
+        "temperature": 0.7
+    }
+
+    try:
+        r = requests.post(url, headers=headers, json=payload, proxies=PROXIES, timeout=25)
+        data = r.json()
+        if "choices" in data and len(data["choices"]) > 0:
+            ans = data["choices"][0]["message"]["content"]
+            return clean_ai_text(ans)
+        else:
+            print("Groq API Response Error:", data)
+    except Exception as e:
+        print("Groq API Request Exception:", e)
+
+    return None
 
 SMART_REPLIES = [
     {
         "patterns": ["سڵاو", "سلاو", "سلام", "هەڵۆ", "hello", "hi"],
-        "replies": ["سڵاو لە تۆش گیان! ❤️", "سڵاو بەخێر بێیت! 🌸", "سڵاو چۆنیت؟ 😊", "سڵاو و ڕێز بۆ تۆی بەڕێز 💖"]
+        "replies": ["سڵاو لە تۆش گیان! ❤️ چۆنیت؟", "سڵاو بەخێر بێیت گوڵم! 🌸", "سڵاو و ڕێز بۆ تۆی ئازیز 💖"]
     },
     {
         "patterns": ["چۆنیت", "چونیت", "چۆنی", "چاکیت", "باشیت", "چ هەواڵ"],
-        "replies": ["سوپاس بۆ خوا من زۆر باشم، تۆ چۆنیت گیان؟ ✨", "زۆر باشم سوپاس! تۆ بڵێ چی هەیە؟ 😊", "سوپاس گەورەم، من باشم تۆ چۆنیت؟ ❤️"]
+        "replies": ["سوپاس بۆ خودا من زۆر باشم، تۆ چۆنیت گیان؟ ✨", "زۆر باشم سوپاس! چی دەکەیت؟ 😊", "سوپاس گەورەم، من باشم تۆ چۆنیت؟ ❤️"]
     },
     {
         "patterns": ["دەستت خۆش", "دەست خۆش", "دەستت کەڵەک پێ بێت", "دەستت ڕەنگین"],
-        "replies": ["عافیەتت بێت گیانەکەم! ❤️", "سەرکەوتوو بیت، شایەنی نییە 🌸", "دەستی تۆش خۆش بێت براکەم ✨"]
-    },
-    {
-        "patterns": ["سوپاس", "مەمنوون", "زۆر باش", "جوانە"],
-        "replies": ["شایەنی نییە گیانەکەم! ❤️", "بەردەوام لە خزمەتین! 🌸", "سەرچاوم! ✨"]
+        "replies": ["عافیەتت بێت گیانەکەم! ❤️", "سەرکەوتوو بیت، شایەنی نییە 🌸", "دەستی تۆش خۆش بێت گوڵم ✨"]
     },
     {
         "patterns": ["ناوی تۆ چییە", "ناوت چییە", "تۆ کێیت", "کێیت"],
-        "replies": ["من ناوم زیرەکە! هاوڕێیەکی دڵسۆزی کوردم 🤖❤️", "من زیرەکم! خزمەتکاری ئێوەی ئازیز 🌸"]
+        "replies": ["من ناوم زیرەکە! هاوڕێ و ژیریی دەستکردی دڵسۆزی کوردم 🤖❤️", "من زیرەکم! خزمەتکاری ئێوەی ئازیز 🌸"]
     }
 ]
 
+def get_smart_reply(text: str):
+    lower = text.strip().lower()
+    for entry in SMART_REPLIES:
+        for p in entry["patterns"]:
+            if p == lower or (len(p) > 3 and p in lower):
+                return random.choice(entry["replies"])
+    return None
+
+def get_ai_reply(chat_id: int, user_id: int, question: str, is_private: bool = False) -> str:
+    smart = get_smart_reply(question)
+    if smart:
+        return smart
+
+    system_prompt = PRIVATE_AI_SYSTEM_PROMPT if is_private else GROUP_AI_SYSTEM_PROMPT
+    max_tokens = 700 if is_private else 150
+
+    u_key = str(user_id)
+    history = state_data["ai_history"].get(u_key, []) if is_private else []
+
+    answer = call_ai(system_prompt, question, history=history, max_tokens=max_tokens)
+    if answer:
+        if is_private:
+            history.append({"role": "user", "content": question})
+            history.append({"role": "assistant", "content": answer})
+            state_data["ai_history"][u_key] = history[-8:]
+            save_state()
+        return answer
+
+    if is_private:
+        return "ببوورە گیان کەمێک کێشەی هێڵ هەیە، تکایە جارێکی تر پرسیارەکەت بنووسەوە! 🌸"
+    return None
+
 # ═══════════════════════════════════════════════════════════════════════════════
-#  وتەکانی کاتژمێری - 40 وتەی جیاواز
+#  وتەکانی کاتژمێری و زیکر
 # ═══════════════════════════════════════════════════════════════════════════════
 
 FALLBACK_QUOTES = [
@@ -148,14 +210,12 @@ FALLBACK_QUOTES = [
     "هەموو ڕۆژێک هەلێکی نوێیە بۆ باشتربوون.",
     "زانست تاکە سامانێکە کە بە بەخشین زیاد دەکات.",
     "لێبوردەیی نیشانەی هێزە، نەک بێهێزی.",
-    "هەر شتێک لە دڵەوە بێت، دەگاتە دڵ.",
     "سادەیی جوانترین جۆری پێشکەوتنە.",
     "ڕۆژانە هەوڵبدە ببیتە هۆکاری خەندەی کەسێک.",
     "بیرکردنەوەی ئەرێنی، کلیلی دەرگا داخراوەکانە.",
     "هەڵەکانمان وانەی ژیانن، نەک کۆتایی ڕێگاکە.",
     "چاکە بکە و لەبیری بکە، ڕۆژێک دێت بەری دەبینیت.",
     "بەختەوەری لە ناخەوە هەڵدەقوڵێت، نەک لە دەوروبەرەوە.",
-    "هیچ کاتێک درەنگ نییە بۆ خەونێکی نوێ.",
     "ئارامگرتن تاڵە، بەڵام بەرهەمەکەی شیرینە.",
     "ڕێزگرتن لە بەرامبەر، ڕێزگرتنە لە خودی خۆت.",
     "وشەی جوان وەک بارانی بەهارە، ڕۆح دەژێنێتەوە.",
@@ -164,43 +224,20 @@ FALLBACK_QUOTES = [
     "ڕاستگۆیی گەورەترین سەرمایەی مرۆڤە.",
     "ژیان کورتە، بە سادەیی و جوانی بژی.",
     "گەورەترین سەرکەوتن ئەوەیە کە زاڵ بیت بەسەر ناخی خۆتدا.",
-    "هیوا تاکە چرایەکە کە لە تاریکیدا ڕووناکی دەدات.",
-    "ئەوەی ڕاست دەکەیت ئەوە بکە، نەک ئەوەی ئاسانە.",
-    "دەوڵەمەندترین کەس ئەوەیە کە زۆرترین دڵخۆشی ببەخشێت.",
-    "خەونەکانت لە خۆت گەورەتر بکە، پاشان گەورە ببە بۆ خەونەکانت.",
-    "ئەو کەسەی خۆی ناناسێت، چۆن دەتوانێت جیهان بناسێت؟",
-    "بە هیوا بژی، بە ئومێد بخەوە، بە ئارەزووی باش هەستیتەوە.",
-    "تاڵی ئەمڕۆ شیرینی سبەینێیە.",
-    "ئەو کەسەی بێ ئامانج ڕێ دەکات، بە هیچ شوێنێک ناگات.",
-    "مرۆڤی زانا کەمتر قسە دەکات و زیاتر گوێ دەگرێت."
+    "هیوا تاکە چرایەکە کە لە تاریکیدا ڕووناکی دەدات."
 ]
 
 def generate_unique_quote():
-    """وتەیەکی تازە و نوێ و نەدووبارەکراو دروست دەکات"""
-    # یەکەم: هەوڵبدە لە AI وتەی نوێ بوێرە
-    try:
-        if groq_client:
-            now = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=3)))
-            time_context = "شەو" if (now.hour >= 21 or now.hour < 5) else ("بەیانی" if now.hour < 12 else "پاشنیوەڕۆ")
-            res = groq_client.chat.completions.create(
-                model=GROQ_MODEL,
-                messages=[
-                    {"role": "system", "content": "تۆ شاعیرێکی کوردیی سۆرانیت. تەنها یەک وتەی کورت و جوان و بەمانا بە سۆرانی بنووسە. هیچ ڕوونکردنەوەیەک مەنووسە. تەنها وتەکە بنووسە بەبێ هیچ پێشگرێک."},
-                    {"role": "user", "content": f"یەک وتەی جوان و بەمانا بۆ کاتی {time_context} بنووسە."}
-                ],
-                max_tokens=100,
-                temperature=0.95
-            )
-            ans = res.choices[0].message.content.strip()
-            # پاکسازیی وتەکە
-            ans = ans.replace('"', '').replace("'", "").strip()
-            ans = re.sub(r'^[\-\*\d\.\)]+\s*', '', ans).strip()
-            if ans and len(ans) > 5:
-                return ans
-    except Exception as e:
-        print(f"Groq quote error: {e}")
+    now = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=3)))
+    time_context = "شەو" if (now.hour >= 21 or now.hour < 5) else ("بەیانی" if now.hour < 12 else "پاشنیوەڕۆ")
+    
+    prompt = f"تۆ شاعیرێکی کوردیی سۆرانیت. تەنها یەک وتەی کورت، جوان، پڕمانا و زۆر قەشەنگ بۆ کاتی {time_context} بنووسە. تەنها دەقی وتەکە بنووسە بەبێ هیچ ڕوونکردنەوەیەک."
+    ans = call_ai("تەنها یەک وتەی کوردیی سۆرانی کورت بنووسە.", prompt, max_tokens=100)
+    if ans and len(ans) > 6:
+        ans = ans.replace('"', '').replace("'", "").strip()
+        ans = re.sub(r'^[\-\*\d\.\)]+\s*', '', ans).strip()
+        return ans
 
-    # دووەم: لیستی جێگرەوە
     sent = state_data.get("sent_quotes", [])
     available = [q for q in FALLBACK_QUOTES if q not in sent]
     if not available:
@@ -211,10 +248,6 @@ def generate_unique_quote():
     state_data["sent_quotes"].append(chosen)
     save_state()
     return chosen
-
-# ═══════════════════════════════════════════════════════════════════════════════
-#  کاتی نوێژەکان
-# ═══════════════════════════════════════════════════════════════════════════════
 
 PRAYER_MESSAGES = {
     "Fajr": "🕌 *کاتی نوێژی بەیانییە (فەجر)* 🌸\n\n﴿إِنَّ قُرْآنَ الْفَجْرِ كَانَ مَشْهُودًا﴾\nسەڵاوات لەسەر پێغەمبەری خوا (ﷺ) لێبدەن: أللَّهُمَّ صَلِّ عَلَى مُحَمَّدٍ وَعَلَى آلِ مُحَمَّدٍ 🤍",
@@ -240,21 +273,20 @@ def fetch_live_prayer_times():
     if LAST_API_FETCH_DAY == today_str:
         return
     try:
-        r = requests.get("http://api.aladhan.com/v1/timingsByCity?city=Erbil&country=Iraq&method=3", timeout=10)
+        r = requests.get("http://api.aladhan.com/v1/timingsByCity?city=Erbil&country=Iraq&method=3", proxies=PROXIES, timeout=10)
         data = r.json()
         if data and data.get("code") == 200:
             timings = data["data"]["timings"]
             for key in ["Fajr", "Dhuhr", "Asr", "Maghrib", "Isha"]:
                 val = timings.get(key, "")
                 if val:
-                    # لابردنی (EET) لە کۆتایی
                     LIVE_PRAYER_TIMES[key] = val.split(" ")[0]
             LAST_API_FETCH_DAY = today_str
     except Exception as e:
         print(f"Aladhan API fetch exception: {e}")
 
 # ═══════════════════════════════════════════════════════════════════════════════
-#  فیلتەری وشەی ناشرین
+#  فیلتەری وشەی ناشرین و لینک
 # ═══════════════════════════════════════════════════════════════════════════════
 
 STANDALONE_BAD_WORDS = ['قن', 'گو', 'کیر', 'کێر', 'تڕ']
@@ -262,7 +294,7 @@ STANDALONE_BAD_WORDS = ['قن', 'گو', 'کیر', 'کێر', 'تڕ']
 EXPLICIT_BAD_WORDS = [
     'قنت', 'قنم', 'قنی', 'قوز', 'قۆز', 'قوزت', 'قوزم', 'قوزی',
     'کێرم', 'کیرم', 'کێری', 'کێرت', 'کیرت',
-    'گواو', 'گوخۆر', 'گوو', 'گوت', 'گووم', 'گواوی',
+    'گواو', 'گوخۆر', 'گوو', 'گو', 'گوت', 'گووم', 'گواوی',
     'حیز', 'سۆزانی', 'سێکس', 'پۆرن', 'قەحبە', 'گەواد', 'پینتی', 'بێنامووس',
     'ئەتگێم', 'ئەگێم', 'بگێم', 'بگێرم', 'تێبگێم', 'گاین', 'تێگەین', 'بگێین', 'داپێنم',
     'fuck', 'shit', 'bitch', 'asshole', 'dick', 'pussy',
@@ -287,7 +319,6 @@ def normalize_kurdish(text: str) -> str:
     return t.strip().lower()
 
 def contains_bad_word(text: str) -> bool:
-    """تەنها وشەی جنێو و ناشرین دەگرێتەوە - شتی ئاسایی هەرگیز بلۆک ناکات"""
     if not text:
         return False
     norm = normalize_kurdish(text)
@@ -296,19 +327,15 @@ def contains_bad_word(text: str) -> bool:
     for w in words:
         if w in STANDALONE_BAD_WORDS:
             return True
-
     for w in EXPLICIT_BAD_WORDS:
         if w in norm:
             return True
-
     for phrase in BAD_PHRASES_LIST:
         if re.search(phrase, norm, re.IGNORECASE):
             return True
-
     return False
 
 def contains_link_or_spam(msg: dict, text: str) -> bool:
-    """تەنها لینکی ڕاستەقینە و ریکلامی ناخوازراو دەگرێتەوە"""
     if text and re.search(r'(?i)\bhttps?://|\bt\.me/|\btelegram\.me/|\bwww\.', text):
         return True
     if msg.get("entities"):
@@ -319,13 +346,9 @@ def contains_link_or_spam(msg: dict, text: str) -> bool:
         for e in msg["caption_entities"]:
             if e.get("type") in ["url", "text_link"]:
                 return True
-    # reply_markup (دوگمە/بۆتنی ڕیکلامی) بلۆک بکرێت
     if msg.get("reply_markup"):
         return True
     return False
-
-def is_forwarded_message(msg: dict) -> bool:
-    return any(k in msg for k in ["forward_date", "forward_from", "forward_from_chat", "forward_sender_name"])
 
 # ═══════════════════════════════════════════════════════════════════════════════
 #  فەنکشنەکانی تیلیگرام
@@ -333,7 +356,7 @@ def is_forwarded_message(msg: dict) -> bool:
 
 def tg_call(method: str, payload: dict = None):
     try:
-        r = requests.post(f"{API_BASE}/{method}", json=payload or {}, timeout=30)
+        r = requests.post(f"{API_BASE}/{method}", json=payload or {}, proxies=PROXIES, timeout=30)
         return r.json()
     except Exception as e:
         print(f"Telegram API Error ({method}): {e}")
@@ -366,8 +389,7 @@ def get_display_name(user_obj: dict) -> str:
 def is_admin(chat_id: int, user_id: int) -> bool:
     res = tg_call("getChatMember", {"chat_id": chat_id, "user_id": user_id})
     if res and res.get("ok"):
-        status = res["result"]["status"]
-        return status in ["creator", "administrator"]
+        return res["result"]["status"] in ["creator", "administrator"]
     return False
 
 def add_user_warning(chat_id: int, user_id: int) -> int:
@@ -394,63 +416,6 @@ def set_user_mute(chat_id: int, user_id: int, minutes: int = 60):
         }
     })
 
-def clean_ai_text(text: str) -> str:
-    if not text:
-        return ""
-    clean = re.sub(r'(?im)^\s*@?[a-zA-Z0-9_]+:\s*', '', text)
-    clean = re.sub(r'\([^()\r\n]*\)', '', clean)
-    if re.search(r'[\u0900-\u097F]', clean):
-        return ""
-    return clean.strip()
-
-def get_smart_reply(text: str):
-    lower = text.strip().lower()
-    for entry in SMART_REPLIES:
-        for p in entry["patterns"]:
-            if p in lower:
-                return random.choice(entry["replies"])
-    return None
-
-def get_ai_reply(chat_id: int, user_id: int, question: str, is_private: bool = False) -> str:
-    smart = get_smart_reply(question)
-    if smart:
-        return smart
-
-    if not groq_client:
-        # لە گروپدا ئەگەر AI نەبوو، بێدەنگ بمێنە
-        if not is_private:
-            return None
-        return "گیان لە خزمەتتم، چی پرسیارێکت هەبێت فەرموو؟ 😊"
-
-    system_prompt = PRIVATE_AI_SYSTEM_PROMPT if is_private else GROUP_AI_SYSTEM_PROMPT
-    max_tokens = 250 if is_private else 120
-
-    try:
-        res = groq_client.chat.completions.create(
-            model=GROQ_MODEL,
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": question}
-            ],
-            max_tokens=max_tokens,
-            temperature=0.7
-        )
-        answer = res.choices[0].message.content
-        answer = clean_ai_text(answer)
-        if answer:
-            return answer
-    except Exception as e:
-        print("Groq Error:", e)
-
-    # لە گروپدا ئەگەر وەڵامی باش نەبوو، بێدەنگ بمێنە
-    if not is_private:
-        return None
-    return "گیان لە خزمەتتم، دەتوانیت دووبارە ڕوونی بکەیتەوە؟ 🌸"
-
-# ═══════════════════════════════════════════════════════════════════════════════
-#  ناردنی پەیام بۆ هەموو گروپەکان
-# ═══════════════════════════════════════════════════════════════════════════════
-
 def broadcast_to_groups(text: str):
     if not text:
         return
@@ -461,26 +426,38 @@ def broadcast_to_groups(text: str):
         except Exception as e:
             print(f"Broadcast error for {g_id_str}: {e}")
 
+WELCOME_MESSAGES = [
+    "🌸 سڵاو {name} گیان! زۆر بەخێر هاتیت بۆ گروپەکەمان 🎉\n\nگەرمترین بەخێرهاتنت لێ دەکەین، هیوادارین کاتێکی زۆر خۆش و بەسوود لەگەڵمان بەسەر ببەیت! ✨❤️",
+    "👑 سڵاو لە {name} خۆشەویست! زۆر بەخێربێیت بۆ نێو خێزانە چاک و ئازیزەکەمان 🌟\n\nخۆشحاڵین بە هاتنت، بە هیوای کاتی خۆش و سەرکەوتووانە! 🌺",
+    "✨ سڵاو و دەرەکەت خۆش {name} گیان! بەخێربێیت بەسەر چاوانمان 💐\n\nگروپ بە هاتنی تۆ ڕووناک بووەوە! 🎉"
+]
+
 # ═══════════════════════════════════════════════════════════════════════════════
-#  کاتژمێرە هاوشێوەکان و کاتی نوێژەکان
+#  پشکنینی کاتژمێرە هاوشێوەکان و نوێژەکان
 # ═══════════════════════════════════════════════════════════════════════════════
 
+LAST_HOURLY_CHECK = ""
+LAST_PRAYER_CHECK = ""
+
 def check_scheduled_tasks():
-    """پشکنینی کاتژمێرە هاوشێوەکان و کاتی نوێژ - تەنها یەک جار دەنێرێت"""
+    global LAST_HOURLY_CHECK, LAST_PRAYER_CHECK
+
+    # Kurdistan Timezone (UTC+3)
     now = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=3)))
     current_time_str = now.strftime("%H:%M")
     current_stamp_str = now.strftime("%Y-%m-%d %H:%M")
 
-    # Mirror clock times: 1:01, 2:02, ... 12:12
+    # Mirror times: 1:01, 2:02, 3:03 ... 11:11, 12:12, 13:01 ... 23:11
     h12 = now.hour % 12
     if h12 == 0:
         h12 = 12
 
     is_matching_time = (now.minute == h12)
 
-    # ١. کاتژمێرە هاوشێوەکان - تەنها یەک نامە
-    last_clock = state_data.get("last_clock", "")
-    if is_matching_time and last_clock != current_stamp_str:
+    # ١. کاتژمێری هاوشێوە + وتەی نوێ
+    last_saved_clock = state_data.get("last_clock", "")
+    if is_matching_time and last_saved_clock != current_stamp_str and LAST_HOURLY_CHECK != current_stamp_str:
+        LAST_HOURLY_CHECK = current_stamp_str
         state_data["last_clock"] = current_stamp_str
         save_state()
 
@@ -490,16 +467,17 @@ def check_scheduled_tasks():
         k_min = "".join([digits_kurdish.get(c, c) for c in f"{now.minute:02d}"])
 
         quote = generate_unique_quote()
-        clock_msg = f"🕐 *کاتژمێر {k_hour}:{k_min} ی {period}ە* ✨\n\n{quote}"
+        clock_msg = f"🕐 *کاتژمێر {k_hour}:{k_min} ی {period}ە* ✨\n\n✨ *وتەی کاتژمێر:*\n{quote}"
         broadcast_to_groups(clock_msg)
 
-    # ٢. کاتی نوێژەکان - تەنها یەک جار
+    # ٢. کاتی نوێژەکان و زیکر
     fetch_live_prayer_times()
     for prayer_name, prayer_time in LIVE_PRAYER_TIMES.items():
         if current_time_str == prayer_time:
             p_check_key = f"{now.strftime('%Y-%m-%d')} {prayer_name}"
-            last_prayer = state_data.get("last_prayer", "")
-            if last_prayer != p_check_key:
+            last_saved_prayer = state_data.get("last_prayer", "")
+            if LAST_PRAYER_CHECK != p_check_key and last_saved_prayer != p_check_key:
+                LAST_PRAYER_CHECK = p_check_key
                 state_data["last_prayer"] = p_check_key
                 save_state()
                 prayer_msg = PRAYER_MESSAGES.get(prayer_name, "")
@@ -507,7 +485,7 @@ def check_scheduled_tasks():
                     broadcast_to_groups(prayer_msg)
 
 # ═══════════════════════════════════════════════════════════════════════════════
-#  بەڕێوەبردنی پەیامەکان - تەنها قسەی ناشرین دەسڕێتەوە
+#  بەڕێوەبردنی پەیامەکان
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def handle_message(msg: dict):
@@ -557,7 +535,7 @@ def handle_message(msg: dict):
     display_name = get_display_name(from_user)
     text = msg.get("text") or msg.get("caption") or ""
 
-    # 💬 ۱. چاتی شەخسی
+    # 💬 ۱. چاتی شەخسی (Smart Kurdish AI Assistant)
     if chat_type == "private":
         if text:
             reply = get_ai_reply(chat_id, user_id, text, is_private=True)
@@ -565,18 +543,14 @@ def handle_message(msg: dict):
                 send_message(chat_id, reply, msg_id)
         return
 
-    # 🛡️ ۲. ئاسایشی گروپ - تەنها جنێو و لینکی ناخوازراو
-    # ⚠️ GIF، ستیکەر، وێنە، ڤیدیۆ = ئازاد و هەرگیز ناسڕێنەوە!
-    # ⚠️ تەنها قسەی ناشرین و لینکی ڕیکلامی دەسڕدرێنەوە!
+    # 🛡️ ۲. ئاسایشی گروپ (تەنها قسەی ناشرین و لینک)
     is_user_admin = is_admin(chat_id, user_id)
 
     if not is_user_admin:
         violation = ""
 
-        # تەنها لینکی ڕیکلامی
         if contains_link_or_spam(msg, text):
             violation = "ناردنی لینک یان ریکلام 🔗"
-        # تەنها قسەی جنێو (لە دەق یان کاپشنی وێنەدا)
         elif contains_bad_word(text):
             violation = "قسەی ناشرین 🤬"
 
@@ -589,15 +563,14 @@ def handle_message(msg: dict):
                 send_message(chat_id, f"🚫 {display_name} بەهۆی دووبارەکردنەوەی سەرپێچی، بۆ ماوەی ١ کاتژمێر لە چاتکردن بێدەنگ کرا!")
             return
 
-    # 💬 ۳. وەڵامدانەوەی AI بۆ هەموو کەسێک بەپێی قسەکەی
+    # 💬 ۳. وەڵامدانەوەی AI لە گروپدا (ئەگەر دوو کەس قسە لەگەڵ یەکتر بکەن، بووت بێدەنگ دەبێت)
     if text:
-        # ئەگەر دوو کەسی ئاسایی ڕیپڵای بۆ یەکتر دەکەن، بووت تێکەڵ نەبێت
         if "reply_to_message" in msg and msg["reply_to_message"]:
             target_user = msg["reply_to_message"].get("from", {})
             target_id = target_user.get("id", 0)
             is_target_bot = target_user.get("is_bot", False)
             if target_id != BOT_ID and not is_target_bot:
-                return  # دوو مرۆڤن قسەیان لەگەڵ یەکە، بووت تێکەڵ نابێت
+                return  # دوو مرۆڤن قسەیان لەگەڵ یەکە، بووت بێدەنگ دەمێنێت
 
         reply = get_ai_reply(chat_id, user_id, text, is_private=False)
         if reply:
@@ -609,55 +582,62 @@ def handle_message(msg: dict):
 
 app = Flask(__name__)
 
+# سڕینەوەی کێشەی شەدوولەر بە دروستکردنی Background Worker ی بێ کێشە
+_scheduler_started = False
+def init_scheduler():
+    global _scheduler_started
+    if not _scheduler_started:
+        _scheduler_started = True
+        def _loop():
+            time.sleep(5)
+            while True:
+                try:
+                    check_scheduled_tasks()
+                except Exception as e:
+                    print("Scheduler Loop Error:", e)
+                time.sleep(25)
+        t = threading.Thread(target=_loop, daemon=True)
+        t.start()
+        print("✅ Background 24/7 Scheduler Started Successfully!")
+
+init_scheduler()
+
 @app.route("/")
 def home():
-    # هەر کاتێک سەردان بکرێت، کاتژمێر و نوێژەکان پشکنین دەکرێن
-    try:
-        check_scheduled_tasks()
-    except Exception:
-        pass
+    check_scheduled_tasks()
     return "🤖 Zirak Bot is alive! ✨", 200
 
 @app.route(f"/{WEBHOOK_SECRET}", methods=["POST"])
 def webhook():
-    """وەرگرتنی پەیامەکان لە تیلیگرام بە ڕێگای Webhook"""
-    # پشکنینی کاتژمێر و نوێژ لەگەڵ هەر پەیامێک
     try:
         check_scheduled_tasks()
-    except Exception:
-        pass
-    try:
         data = flask_request.get_json(force=True)
         if data:
             if "message" in data:
                 handle_message(data["message"])
-            # بۆ بەخێرهاتنی ئەندامانی نوێ لە ڤێرژنە نوێکانی تیلیگرام
             if "chat_member" in data:
                 cm = data["chat_member"]
                 if cm.get("new_chat_member", {}).get("status") == "member":
-                    chat_id = cm.get("chat", {}).get("id")
-                    user_info = cm.get("new_chat_member", {}).get("user", {})
-                    if chat_id and user_info and not user_info.get("is_bot"):
-                        m_name = get_display_name(user_info)
+                    c_id = cm.get("chat", {}).get("id")
+                    u_info = cm.get("new_chat_member", {}).get("user", {})
+                    if c_id and u_info and not u_info.get("is_bot"):
+                        m_name = get_display_name(u_info)
                         w_msg = random.choice(WELCOME_MESSAGES).format(name=m_name)
-                        send_message(chat_id, w_msg)
+                        send_message(c_id, w_msg)
     except Exception as e:
         print(f"Webhook error: {e}")
     return "OK", 200
 
 @app.route("/cron", methods=["GET"])
 def cron_endpoint():
-    """بۆ پشکنینی ئۆتۆماتیکی کاتژمێر و نوێژ"""
     try:
         check_scheduled_tasks()
         return "Cron OK", 200
     except Exception as e:
-        print(f"Cron error: {e}")
         return f"Cron Error: {e}", 500
 
 @app.route("/set_webhook", methods=["GET"])
 def set_webhook():
-    """دانانی Webhook بۆ تیلیگرام - لەگەڵ chat_member بۆ بەخێرهاتن"""
     webhook_url = f"https://{PA_USERNAME}.pythonanywhere.com/{WEBHOOK_SECRET}"
     result = tg_call("setWebhook", {
         "url": webhook_url,
@@ -666,14 +646,13 @@ def set_webhook():
     return f"Webhook set result: {result}", 200
 
 # ═══════════════════════════════════════════════════════════════════════════════
-#  بەکارهێنانی لۆکاڵ (polling) - بۆ تاقیکردنەوەی لەسەر لاپتۆپ
+#  Long Polling Engine (بۆ ڕەنکردنی لۆکاڵ یان لە کۆنسۆڵ)
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def main_polling():
-    """بۆ کاتی تاقیکردنەوەی لۆکاڵ تەنها"""
     tg_call("deleteWebhook", {"drop_pending_updates": True})
     print("===============================================")
-    print("  Zirak Bot - Local Polling Mode")
+    print("  Zirak Bot - Continuous 24/7 Engine")
     print("===============================================")
 
     offset = 0
@@ -696,4 +675,3 @@ def main_polling():
 
 if __name__ == "__main__":
     main_polling()
-
