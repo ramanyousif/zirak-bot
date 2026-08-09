@@ -604,35 +604,28 @@ def handle_message(msg: dict):
             send_message(chat_id, reply, msg_id)
 
 # ═══════════════════════════════════════════════════════════════════════════════
-#  Flask Webhook App + Background Scheduler Thread
+#  Flask Webhook App
 # ═══════════════════════════════════════════════════════════════════════════════
-
-import threading
 
 app = Flask(__name__)
 
-# ───── Background Thread بۆ کاتژمێر و نوێژەکان ─────
-def scheduler_loop():
-    """ئەم لووپە هەر ٣٠ چرکە پشکنین دەکات بۆ کاتژمێرەکان و نوێژەکان"""
-    while True:
-        try:
-            check_scheduled_tasks()
-        except Exception as e:
-            print(f"Scheduler error: {e}")
-        time.sleep(30)
-
-# دەستپێکردنی Background Thread
-scheduler_thread = threading.Thread(target=scheduler_loop, daemon=True)
-scheduler_thread.start()
-print("✅ Scheduler thread started!")
-
 @app.route("/")
 def home():
+    # هەر کاتێک سەردان بکرێت، کاتژمێر و نوێژەکان پشکنین دەکرێن
+    try:
+        check_scheduled_tasks()
+    except Exception:
+        pass
     return "🤖 Zirak Bot is alive! ✨", 200
 
 @app.route(f"/{WEBHOOK_SECRET}", methods=["POST"])
 def webhook():
     """وەرگرتنی پەیامەکان لە تیلیگرام بە ڕێگای Webhook"""
+    # پشکنینی کاتژمێر و نوێژ لەگەڵ هەر پەیامێک
+    try:
+        check_scheduled_tasks()
+    except Exception:
+        pass
     try:
         data = flask_request.get_json(force=True)
         if data:
