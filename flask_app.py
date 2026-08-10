@@ -433,15 +433,48 @@ WELCOME_MESSAGES = [
 ]
 
 # ═══════════════════════════════════════════════════════════════════════════════
-#  پشکنینی کاتژمێرە هاوشێوەکان و نوێژەکان
+#  سیستەمی قوفڵی ئەتۆمی بۆ ڕێگریکردن لە دووبارەبوونەوە (Atomic Schedule Lock)
 # ═══════════════════════════════════════════════════════════════════════════════
 
-LAST_HOURLY_CHECK = ""
-LAST_PRAYER_CHECK = ""
+LOCK_DIR = Path("/home/ramanyousif2002/zirak-bot/data/locks") if IS_PYTHONANYWHERE else Path("data/locks")
+
+def claim_schedule_lock(lock_name: str, stamp: str) -> bool:
+    """
+    سەرکەوتووانە دەست بەسەر ئەم کاتژمێرە یان نوێژەدا دەگرێت
+    ڕێگە نادات هیچ کاتژمێر یان زیکرێک زیاتر لە ١ جار بنێردرێت
+    تەنانەت ئەگەر چەندین پڕۆسەی سێرڤەر بە یەکەوە کار بکەن
+    """
+    try:
+        LOCK_DIR.mkdir(parents=True, exist_ok=True)
+        safe_stamp = re.sub(r'[^a-zA-Z0-9_\-]', '_', stamp)
+        lock_file = LOCK_DIR / f"{lock_name}_{safe_stamp}.lock"
+        
+        # Atomic lock creation at OS level (تەنها ١ پڕۆسە دەتوانێت ئەم فایلە دروست بکات)
+        fd = os.open(str(lock_file), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        with os.fdopen(fd, 'w') as f:
+            f.write(str(time.time()))
+        
+        # پاککردنەوەی فایلە کۆنەکانی پێشتر (زیاتر لە ٣ کاتژمێر)
+        try:
+            now_ts = time.time()
+            for old_f in LOCK_DIR.glob("*.lock"):
+                if now_ts - old_f.stat().st_mtime > 10800:
+                    old_f.unlink(missing_ok=True)
+        except Exception:
+            pass
+
+        return True
+    except FileExistsError:
+        return False
+    except Exception as e:
+        print(f"Schedule lock error: {e}")
+        return False
+
+# ═══════════════════════════════════════════════════════════════════════════════
+#  پشکنینی کاتژمێرە هاوشێوەکان و نوێژەکان (تەنها ١ جار بە تەواوەتی)
+# ═══════════════════════════════════════════════════════════════════════════════
 
 def check_scheduled_tasks():
-    global LAST_HOURLY_CHECK, LAST_PRAYER_CHECK
-
     # Kurdistan Timezone (UTC+3)
     now = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=3)))
     current_time_str = now.strftime("%H:%M")
@@ -454,32 +487,24 @@ def check_scheduled_tasks():
 
     is_matching_time = (now.minute == h12)
 
-    # ١. کاتژمێری هاوشێوە + وتەی نوێ
-    last_saved_clock = state_data.get("last_clock", "")
-    if is_matching_time and last_saved_clock != current_stamp_str and LAST_HOURLY_CHECK != current_stamp_str:
-        LAST_HOURLY_CHECK = current_stamp_str
-        state_data["last_clock"] = current_stamp_str
-        save_state()
+    # ١. کاتژمێری هاوشێوە + یەک وتەی نوێ (تەنها ١ جار بە تەواوەتی)
+    if is_matching_time:
+        if claim_schedule_lock("clock", current_stamp_str):
+            period = "شەو" if (now.hour >= 21 or now.hour < 5) else ("بەیانی" if now.hour < 12 else "پاشنیوەڕۆ")
+            digits_kurdish = {"0":"۰", "1":"۱", "2":"۲", "3":"۳", "4":"٤", "5":"٥", "6":"٦", "7":"٧", "8":"٨", "9":"٩"}
+            k_hour = "".join([digits_kurdish.get(c, c) for c in str(h12)])
+            k_min = "".join([digits_kurdish.get(c, c) for c in f"{now.minute:02d}"])
 
-        period = "شەو" if (now.hour >= 21 or now.hour < 5) else ("بەیانی" if now.hour < 12 else "پاشنیوەڕۆ")
-        digits_kurdish = {"0":"۰", "1":"۱", "2":"۲", "3":"۳", "4":"٤", "5":"٥", "6":"٦", "7":"٧", "8":"٨", "9":"٩"}
-        k_hour = "".join([digits_kurdish.get(c, c) for c in str(h12)])
-        k_min = "".join([digits_kurdish.get(c, c) for c in f"{now.minute:02d}"])
+            quote = generate_unique_quote()
+            clock_msg = f"🕐 *کاتژمێر {k_hour}:{k_min} ی {period}ە* ✨\n\n✨ *وتەی کاتژمێر:*\n{quote}"
+            broadcast_to_groups(clock_msg)
 
-        quote = generate_unique_quote()
-        clock_msg = f"🕐 *کاتژمێر {k_hour}:{k_min} ی {period}ە* ✨\n\n✨ *وتەی کاتژمێر:*\n{quote}"
-        broadcast_to_groups(clock_msg)
-
-    # ٢. کاتی نوێژەکان و زیکر
+    # ٢. کاتی نوێژەکان و زیکر (تەنها ١ جار بە تەواوەتی)
     fetch_live_prayer_times()
     for prayer_name, prayer_time in LIVE_PRAYER_TIMES.items():
         if current_time_str == prayer_time:
-            p_check_key = f"{now.strftime('%Y-%m-%d')} {prayer_name}"
-            last_saved_prayer = state_data.get("last_prayer", "")
-            if LAST_PRAYER_CHECK != p_check_key and last_saved_prayer != p_check_key:
-                LAST_PRAYER_CHECK = p_check_key
-                state_data["last_prayer"] = p_check_key
-                save_state()
+            p_check_key = f"{now.strftime('%Y-%m-%d')}_{prayer_name}"
+            if claim_schedule_lock("prayer", p_check_key):
                 prayer_msg = PRAYER_MESSAGES.get(prayer_name, "")
                 if prayer_msg:
                     broadcast_to_groups(prayer_msg)
@@ -604,13 +629,11 @@ init_scheduler()
 
 @app.route("/")
 def home():
-    check_scheduled_tasks()
     return "🤖 Zirak Bot is alive! ✨", 200
 
 @app.route(f"/{WEBHOOK_SECRET}", methods=["POST"])
 def webhook():
     try:
-        check_scheduled_tasks()
         data = flask_request.get_json(force=True)
         if data:
             if "message" in data:

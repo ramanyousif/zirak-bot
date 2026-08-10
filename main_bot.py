@@ -379,6 +379,37 @@ def contains_link_or_spam(msg: dict, text: str) -> bool:
     return False
 
 # ═══════════════════════════════════════════════════════════════════════════════
+#  سیستەمی قوفڵی ئەتۆمی بۆ ڕێگریکردن لە دووبارەبوونەوە (Atomic Schedule Lock)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+LOCK_DIR = Path("/home/ramanyousif2002/zirak-bot/data/locks") if (os.path.exists("/home/ramanyousif2002") or "PYTHONANYWHERE_DOMAIN" in os.environ) else Path("data/locks")
+
+def claim_schedule_lock(lock_name: str, stamp: str) -> bool:
+    try:
+        LOCK_DIR.mkdir(parents=True, exist_ok=True)
+        safe_stamp = re.sub(r'[^a-zA-Z0-9_\-]', '_', stamp)
+        lock_file = LOCK_DIR / f"{lock_name}_{safe_stamp}.lock"
+        
+        fd = os.open(str(lock_file), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        with os.fdopen(fd, 'w') as f:
+            f.write(str(time.time()))
+        
+        try:
+            now_ts = time.time()
+            for old_f in LOCK_DIR.glob("*.lock"):
+                if now_ts - old_f.stat().st_mtime > 10800:
+                    old_f.unlink(missing_ok=True)
+        except Exception:
+            pass
+
+        return True
+    except FileExistsError:
+        return False
+    except Exception as e:
+        print(f"Schedule lock error: {e}")
+        return False
+
+# ═══════════════════════════════════════════════════════════════════════════════
 #  تایبەتمەندیی نوێ: کاتژمێرە هاوشێوەکان (1:01, 2:02 ...) و کاتی نوێژەکان
 # ═══════════════════════════════════════════════════════════════════════════════
 
@@ -416,8 +447,6 @@ def broadcast_to_groups(text: str):
             print(f"Broadcast error for {g_id_str}:", e)
 
 def check_scheduled_tasks():
-    global LAST_HOURLY_CHECK, LAST_PRAYER_CHECK
-    
     # Kurdistan Timezone (UTC+3)
     now = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=3)))
     current_time_str = now.strftime("%H:%M")
@@ -431,32 +460,23 @@ def check_scheduled_tasks():
     is_matching_time = (now.minute == h12)
 
     # ١. پشکنینی کاتژمێرە هاوشێوەکان (1:01, 2:02 ... 11:11, 12:12) + یەک وتەی جوان
-    last_saved_clock = state_data.get("last_clock", "")
-    if is_matching_time and last_saved_clock != current_stamp_str and LAST_HOURLY_CHECK != current_stamp_str:
-        LAST_HOURLY_CHECK = current_stamp_str
-        state_data["last_clock"] = current_stamp_str
-        save_state()
-        
-        period = "شەو" if (now.hour >= 21 or now.hour < 5) else ("بەیانی" if now.hour < 12 else "پاشنیوەڕۆ")
-        
-        digits_kurdish = {"0":"۰", "1":"۱", "2":"۲", "3":"۳", "4":"٤", "5":"٥", "6":"٦", "7":"٧", "8":"٨", "9":"٩"}
-        k_hour = "".join([digits_kurdish.get(c, c) for c in str(h12)])
-        k_min = "".join([digits_kurdish.get(c, c) for c in f"{now.minute:02d}"])
-        
-        quote = generate_unique_quote()
-        clock_msg = f"🕐 **کاتژمێر {k_hour}:{k_min} ی {period}ە** ✨\n\n{quote}"
-        broadcast_to_groups(clock_msg)
+    if is_matching_time:
+        if claim_schedule_lock("clock", current_stamp_str):
+            period = "شەو" if (now.hour >= 21 or now.hour < 5) else ("بەیانی" if now.hour < 12 else "پاشنیوەڕۆ")
+            digits_kurdish = {"0":"۰", "1":"۱", "2":"۲", "3":"۳", "4":"٤", "5":"٥", "6":"٦", "7":"٧", "8":"٨", "9":"٩"}
+            k_hour = "".join([digits_kurdish.get(c, c) for c in str(h12)])
+            k_min = "".join([digits_kurdish.get(c, c) for c in f"{now.minute:02d}"])
+            
+            quote = generate_unique_quote()
+            clock_msg = f"🕐 *کاتژمێر {k_hour}:{k_min} ی {period}ە* ✨\n\n{quote}"
+            broadcast_to_groups(clock_msg)
 
     # ٢. پشکنینی کاتی نوێژەکان (بانگ و زیکر)
     fetch_live_prayer_times()
     for prayer_name, prayer_time in LIVE_PRAYER_TIMES.items():
         if current_time_str == prayer_time:
-            p_check_key = f"{now.strftime('%Y-%m-%d')} {prayer_name}"
-            last_saved_prayer = state_data.get("last_prayer", "")
-            if LAST_PRAYER_CHECK != p_check_key and last_saved_prayer != p_check_key:
-                LAST_PRAYER_CHECK = p_check_key
-                state_data["last_prayer"] = p_check_key
-                save_state()
+            p_check_key = f"{now.strftime('%Y-%m-%d')}_{prayer_name}"
+            if claim_schedule_lock("prayer", p_check_key):
                 prayer_msg = PRAYER_MESSAGES.get(prayer_name, "")
                 if prayer_msg:
                     broadcast_to_groups(prayer_msg)
