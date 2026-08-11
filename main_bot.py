@@ -395,37 +395,40 @@ NSFW_KEYWORDS = [
     'sex', 'hot', 'girls', 'boob', 'ass'
 ]
 
+NSFW_PACKS_CACHE = set()
+SAFE_PACKS_CACHE = set()
+
 def is_sticker_blocked(msg: dict) -> tuple:
     """
-    شێوازی یەکەم: بلۆککردنی هەموو ستیکەری ڤیدیۆیی، جوڵاوی سێکسی و سێتە نەشیاوەکان
-    ستیکەری ئاسایی وێنەیی (WEBP)ی جوان و کوردی بە تەواوی ئازادە
+    پشکنینی زیرەکی ستیکەرەکان (ڤیدیۆیی و وێنەیی):
+    - ستیکەری ئاسایی ڤیدیۆیی و وێنەیی (کارتوون، میمی کوردی، پێکەنیناوی، ئاژەڵان) ➔ ئازادە و ناسڕدرێتەوە
+    - تەنها ستیکەری سێکسی، ڕووت، پۆرن، یان نەشیاو ➔ ڕاستەوخۆ دەسڕدرێتەوە
     """
     if "sticker" in msg:
         st = msg["sticker"]
-        
-        # ١. بلۆککردنی ڕاستەوخۆی ستیکەری ڤیدیۆیی (Video Stickers / WebM)
-        # ٩٩٪ی کلیپە سێکسی و پۆڕنەکان لە تیلیگرام ئەم جۆرەن
-        if st.get("is_video"):
-            return True, "ناردنی ستیکەری ڤیدیۆیی و جوڵاو 🔞"
-            
         emoji = st.get("emoji") or ""
+        
+        # ١. ئیمۆجی فەرمی +18
         if "🔞" in emoji:
-            return True, "ناردنی ستیکەری نەشیاو 🔞"
+            return True, "ناردنی ستیکەری نەشیاو و +18 🔞"
 
         set_name = (st.get("set_name") or "").lower()
         if set_name:
             if set_name in NSFW_PACKS_CACHE:
-                return True, "ناردنی ستیکەری نەشیاو و +18 🔞"
+                return True, "ناردنی ستیکەری سێکسی و +18 🔞"
+            if set_name in SAFE_PACKS_CACHE:
+                return False, ""
                 
             norm_set = normalize_kurdish(set_name.replace('_', ' ').replace('-', ' ').replace('.', ' '))
             for kw in NSFW_KEYWORDS:
                 if kw in set_name or kw in norm_set:
                     NSFW_PACKS_CACHE.add(set_name)
-                    return True, "ناردنی ستیکەری نەشیاو و +18 🔞"
+                    return True, "ناردنی ستیکەری سێکسی و +18 🔞"
             if contains_bad_word(norm_set):
                 NSFW_PACKS_CACHE.add(set_name)
                 return True, "ناردنی ستیکەری نەشیاو 🔞"
 
+            # داواکردنی ناونیشانی فەرمی سێتی ستیکەرەکە لە تێلیگرام
             try:
                 res = tg_call("getStickerSet", {"name": set_name})
                 if res and res.get("ok"):
@@ -434,10 +437,13 @@ def is_sticker_blocked(msg: dict) -> tuple:
                     for kw in NSFW_KEYWORDS:
                         if kw in title or kw in norm_title:
                             NSFW_PACKS_CACHE.add(set_name)
-                            return True, "ناردنی ستیکەری نەشیاو و +18 🔞"
+                            return True, "ناردنی ستیکەری سێکسی و +18 🔞"
                     if contains_bad_word(norm_title):
                         NSFW_PACKS_CACHE.add(set_name)
                         return True, "ناردنی ستیکەری نەشیاو 🔞"
+                    
+                    # ئەگەر هەموو پشکنینەکان پاک بوون، سێتەکە پاکە و دەمێنێتەوە
+                    SAFE_PACKS_CACHE.add(set_name)
             except Exception:
                 pass
 
