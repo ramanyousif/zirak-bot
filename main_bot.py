@@ -388,111 +388,69 @@ NSFW_KEYWORDS = [
     'gangbang', 'creampie', 'squirt', 'deepthroat', 'masturbat', 'boobies', 'nipples', 'thong',
     'teenfidelity', 'brazzers', 'pornhub', 'xhamster', 'xvideos', 'onlyfans', 'fap', 'tushy',
     'vixen', 'blacked', 'sweeties', 'redgifs', 'spankbang', 'eporner', 'fakku', 'erome',
+    'manyvids', 'chaturbate', 'cam4', 'bongacams', 'camsoda', 'stripchat', 'livejasmin',
+    'naughty', 'dirty', 'erotica', 'kinky', 'nakedgirl', 'nakedboy', 'slut', 'whore',
     'سێکس', 'سێکسی', 'پۆرن', 'ڕووت', 'قوز', 'قۆز', 'کێر', 'کیر', 'حیز', 'سۆزانی',
-    'قەحبە', 'گەواد', 'گاین', 'داپێنم', 'پینتی', 'گوان', 'مەمک', 'قن', 'کۆم', '18+', '+18'
+    'قەحبە', 'گەواد', 'گاین', 'داپێنم', 'پینتی', 'گوان', 'مەمک', 'قن', 'کۆم', '18+', '+18',
+    'sex', 'hot', 'girls', 'boob', 'ass'
 ]
 
-def check_image_nsfw_ai(file_id: str) -> bool:
-    """پشکنینی بینراوی وێنە و ستیکەر بە ژیریی دەستکردی Vision بۆ دۆزینەوەی ناوەڕۆکی سێکسی"""
-    if not file_id:
+NSFW_PACKS_CACHE = set()
+
+def is_sticker_nsfw(st: dict) -> bool:
+    if not st:
         return False
-    try:
-        file_info = tg_call("getFile", {"file_id": file_id})
-        if not file_info or not file_info.get("ok"):
-            return False
-        file_path = file_info["result"].get("file_path", "")
-        if not file_path:
-            return False
-
-        if file_path.endswith(".tgs"):
-            return False
-            
-        img_url = f"https://api.telegram.org/file/bot{BOT_TOKEN}/{file_path}"
-        proxies = {
-            "http": "http://proxy.server:3128",
-            "https": "http://proxy.server:3128"
-        } if (os.path.exists("/home/ramanyousif2002") or "PYTHONANYWHERE_DOMAIN" in os.environ) else None
         
-        img_res = requests.get(img_url, proxies=proxies, timeout=8)
-        if img_res.status_code != 200 or not img_res.content:
-            return False
-
-        import io
-        import base64
-        try:
-            from PIL import Image
-            img = Image.open(io.BytesIO(img_res.content)).convert("RGB")
-            img.thumbnail((300, 300))
-            buf = io.BytesIO()
-            img.save(buf, format="JPEG", quality=80)
-            b64_img = base64.b64encode(buf.getvalue()).decode("utf-8")
-        except Exception:
-            b64_img = base64.b64encode(img_res.content).decode("utf-8")
-
-        v_url = "https://api.groq.com/openai/v1/chat/completions"
-        v_headers = {
-            "Authorization": f"Bearer {GROQ_API_KEY}",
-            "Content-Type": "application/json"
-        }
-        v_payload = {
-            "model": "llama-3.2-11b-vision-preview",
-            "messages": [
-                {
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "text",
-                            "text": "Is this image pornographic, sexually explicit, depicting nudity, sexual intercourse, genitals, or adult +18 NSFW content? Reply with ONLY 'YES' or 'NO'."
-                        },
-                        {
-                            "type": "image_url",
-                            "image_url": {
-                                "url": f"data:image/jpeg;base64,{b64_img}"
-                            }
-                        }
-                    ]
-                }
-            ],
-            "max_tokens": 10,
-            "temperature": 0.1
-        }
-        r = requests.post(v_url, headers=v_headers, json=v_payload, proxies=proxies, timeout=10)
-        res_data = r.json()
-        if "choices" in res_data and len(res_data["choices"]) > 0:
-            ans = res_data["choices"][0]["message"]["content"].strip().upper()
-            if "YES" in ans:
+    set_name = (st.get("set_name") or "").lower()
+    emoji = st.get("emoji") or ""
+    
+    if "🔞" in emoji:
+        return True
+        
+    if set_name:
+        if set_name in NSFW_PACKS_CACHE:
+            return True
+            
+        norm_set = normalize_kurdish(set_name.replace('_', ' ').replace('-', ' ').replace('.', ' '))
+        for kw in NSFW_KEYWORDS:
+            if kw in set_name or kw in norm_set:
+                NSFW_PACKS_CACHE.add(set_name)
                 return True
-    except Exception as e:
-        print(f"Vision AI check exception: {e}")
+        if contains_bad_word(norm_set):
+            NSFW_PACKS_CACHE.add(set_name)
+            return True
+
+        try:
+            res = tg_call("getStickerSet", {"name": set_name})
+            if res and res.get("ok"):
+                title = (res["result"].get("title") or "").lower()
+                norm_title = normalize_kurdish(title.replace('_', ' ').replace('-', ' ').replace('.', ' '))
+                for kw in NSFW_KEYWORDS:
+                    if kw in title or kw in norm_title:
+                        NSFW_PACKS_CACHE.add(set_name)
+                        return True
+                if contains_bad_word(norm_title):
+                    NSFW_PACKS_CACHE.add(set_name)
+                    return True
+        except Exception as e:
+            print(f"getStickerSet error: {e}")
+
+    if st.get("is_video"):
+        if set_name:
+            for kw in NSFW_KEYWORDS:
+                if kw in set_name:
+                    return True
+
     return False
 
 def is_nsfw_media(msg: dict) -> bool:
     """پشکنینی وردی ستیکەر، گیف، ڤیدیۆ و وێنە بۆ شتی نەشیاو و +18"""
-    thumb_id = None
-
+    # ١. پشکنینی ستیکەر
     if "sticker" in msg:
-        st = msg["sticker"]
-        set_name = (st.get("set_name") or "").lower()
-        emoji = st.get("emoji") or ""
-        
-        if "🔞" in emoji:
+        if is_sticker_nsfw(msg["sticker"]):
             return True
-            
-        if set_name:
-            norm_set = normalize_kurdish(set_name.replace('_', ' ').replace('-', ' ').replace('.', ' '))
-            for kw in NSFW_KEYWORDS:
-                if kw in set_name or kw in norm_set:
-                    return True
-            if contains_bad_word(norm_set):
-                return True
 
-        if st.get("thumbnail"):
-            thumb_id = st["thumbnail"].get("file_id")
-        elif not st.get("is_video") and not st.get("is_animated"):
-            thumb_id = st.get("file_id")
-        elif st.get("is_video"):
-            thumb_id = st.get("thumbnail", {}).get("file_id") or st.get("file_id")
-
+    # ٢. پشکنینی گیف و دۆکیومێنت و ڤیدیۆ
     doc = msg.get("animation") or msg.get("document") or msg.get("video") or {}
     if doc:
         f_name = (doc.get("file_name") or "").lower()
@@ -503,23 +461,14 @@ def is_nsfw_media(msg: dict) -> bool:
                     return True
             if contains_bad_word(norm_fn):
                 return True
-        if not thumb_id:
-            thumb_id = doc.get("thumbnail", {}).get("file_id") or doc.get("file_id")
 
+    # ٣. پشکنینی کاپشن
     cap = (msg.get("caption") or "").lower()
     if cap:
         norm_cap = normalize_kurdish(cap)
         for kw in NSFW_KEYWORDS:
             if kw in cap or kw in norm_cap:
                 return True
-
-    if "photo" in msg and msg["photo"]:
-        if not thumb_id:
-            thumb_id = msg["photo"][-1].get("file_id")
-
-    if thumb_id:
-        if check_image_nsfw_ai(thumb_id):
-            return True
 
     return False
 
