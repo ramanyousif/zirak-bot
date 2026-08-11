@@ -367,61 +367,51 @@ NSFW_KEYWORDS = [
     'sex', 'hot', 'girls', 'boob', 'ass'
 ]
 
-NSFW_PACKS_CACHE = set()
-
-def is_sticker_nsfw(st: dict) -> bool:
-    if not st:
-        return False
-        
-    set_name = (st.get("set_name") or "").lower()
-    emoji = st.get("emoji") or ""
-    
-    if "🔞" in emoji:
-        return True
-        
-    if set_name:
-        if set_name in NSFW_PACKS_CACHE:
-            return True
-            
-        norm_set = normalize_kurdish(set_name.replace('_', ' ').replace('-', ' ').replace('.', ' '))
-        for kw in NSFW_KEYWORDS:
-            if kw in set_name or kw in norm_set:
-                NSFW_PACKS_CACHE.add(set_name)
-                return True
-        if contains_bad_word(norm_set):
-            NSFW_PACKS_CACHE.add(set_name)
-            return True
-
-        # داواکردنی فەرمی ناونیشانی سێتی ستیکەرەکە لە تێلیگرام
-        try:
-            res = tg_call("getStickerSet", {"name": set_name})
-            if res and res.get("ok"):
-                title = (res["result"].get("title") or "").lower()
-                norm_title = normalize_kurdish(title.replace('_', ' ').replace('-', ' ').replace('.', ' '))
-                for kw in NSFW_KEYWORDS:
-                    if kw in title or kw in norm_title:
-                        NSFW_PACKS_CACHE.add(set_name)
-                        return True
-                if contains_bad_word(norm_title):
-                    NSFW_PACKS_CACHE.add(set_name)
-                    return True
-        except Exception as e:
-            print(f"getStickerSet error: {e}")
-
-    if st.get("is_video"):
-        if set_name:
-            for kw in NSFW_KEYWORDS:
-                if kw in set_name:
-                    return True
-
-    return False
-
-def is_nsfw_media(msg: dict) -> bool:
-    """پشکنینی وردی ستیکەر، گیف، ڤیدیۆ و وێنە بۆ شتی نەشیاو و +18"""
-    # ١. پشکنینی ستیکەر
+def is_sticker_blocked(msg: dict) -> tuple:
+    """
+    شێوازی یەکەم: بلۆککردنی هەموو ستیکەری ڤیدیۆیی، جوڵاوی سێکسی و سێتە نەشیاوەکان
+    ستیکەری ئاسایی وێنەیی (WEBP)ی جوان و کوردی بە تەواوی ئازادە
+    """
     if "sticker" in msg:
-        if is_sticker_nsfw(msg["sticker"]):
-            return True
+        st = msg["sticker"]
+        
+        # ١. بلۆککردنی ڕاستەوخۆی ستیکەری ڤیدیۆیی (Video Stickers / WebM)
+        # ٩٩٪ی کلیپە سێکسی و پۆڕنەکان لە تیلیگرام ئەم جۆرەن
+        if st.get("is_video"):
+            return True, "ناردنی ستیکەری ڤیدیۆیی و جوڵاو 🔞"
+            
+        emoji = st.get("emoji") or ""
+        if "🔞" in emoji:
+            return True, "ناردنی ستیکەری نەشیاو 🔞"
+
+        set_name = (st.get("set_name") or "").lower()
+        if set_name:
+            if set_name in NSFW_PACKS_CACHE:
+                return True, "ناردنی ستیکەری نەشیاو و +18 🔞"
+                
+            norm_set = normalize_kurdish(set_name.replace('_', ' ').replace('-', ' ').replace('.', ' '))
+            for kw in NSFW_KEYWORDS:
+                if kw in set_name or kw in norm_set:
+                    NSFW_PACKS_CACHE.add(set_name)
+                    return True, "ناردنی ستیکەری نەشیاو و +18 🔞"
+            if contains_bad_word(norm_set):
+                NSFW_PACKS_CACHE.add(set_name)
+                return True, "ناردنی ستیکەری نەشیاو 🔞"
+
+            try:
+                res = tg_call("getStickerSet", {"name": set_name})
+                if res and res.get("ok"):
+                    title = (res["result"].get("title") or "").lower()
+                    norm_title = normalize_kurdish(title.replace('_', ' ').replace('-', ' ').replace('.', ' '))
+                    for kw in NSFW_KEYWORDS:
+                        if kw in title or kw in norm_title:
+                            NSFW_PACKS_CACHE.add(set_name)
+                            return True, "ناردنی ستیکەری نەشیاو و +18 🔞"
+                    if contains_bad_word(norm_title):
+                        NSFW_PACKS_CACHE.add(set_name)
+                        return True, "ناردنی ستیکەری نەشیاو 🔞"
+            except Exception:
+                pass
 
     # ٢. پشکنینی گیف و دۆکیومێنت و ڤیدیۆ
     doc = msg.get("animation") or msg.get("document") or msg.get("video") or {}
@@ -431,9 +421,9 @@ def is_nsfw_media(msg: dict) -> bool:
             norm_fn = normalize_kurdish(f_name.replace('_', ' ').replace('-', ' ').replace('.', ' '))
             for kw in NSFW_KEYWORDS:
                 if kw in f_name or kw in norm_fn:
-                    return True
+                    return True, "ناردنی میدیای نەشیاو 🔞"
             if contains_bad_word(norm_fn):
-                return True
+                return True, "ناردنی میدیای نەشیاو 🔞"
 
     # ٣. پشکنینی کاپشن
     cap = (msg.get("caption") or "").lower()
@@ -441,9 +431,9 @@ def is_nsfw_media(msg: dict) -> bool:
         norm_cap = normalize_kurdish(cap)
         for kw in NSFW_KEYWORDS:
             if kw in cap or kw in norm_cap:
-                return True
+                return True, "ناردنی کاپشنی نەشیاو 🔞"
 
-    return False
+    return False, ""
 
 # ═══════════════════════════════════════════════════════════════════════════════
 #  فەنکشنەکانی تیلیگرام
@@ -663,15 +653,16 @@ def handle_message(msg: dict):
                 send_message(chat_id, reply, msg_id)
         return
 
-    # 🛡️ ۲. ئاسایشی گروپ (ستیکەری نەشیاو، قسەی ناشرین و لینک)
+    # 🛡️ ۲. ئاسایشی گروپ (ستیکەری ڤیدیۆیی/نەشیاو، قسەی ناشرین و لینک)
     is_user_admin = is_admin(chat_id, user_id)
 
-    # ئەگەر ستیکەر، گیف یان وێنەی سێکسی و +18 بێت ڕاستەوخۆ دەسڕدرێتەوە
-    if is_nsfw_media(msg):
+    # شێوازی یەکەم: بلۆککردنی ڕاستەوخۆی ستیکەری ڤیدیۆیی، کلیپی سێکسی و سێتە نەشیاوەکان
+    is_blocked, violation_reason = is_sticker_blocked(msg)
+    if is_blocked:
         delete_message(chat_id, msg_id)
         if not is_user_admin:
             cnt = add_user_warning(chat_id, user_id)
-            send_message(chat_id, f"⚠️ {display_name} ناردنی ستیکەر یان وێنەی نەشیاو و +18 🔞 قەدەغەیە! ئاگاداری: ({cnt}/{MAX_WARNINGS})")
+            send_message(chat_id, f"⚠️ {display_name} {violation_reason} قەدەغەیە! ئاگاداری: ({cnt}/{MAX_WARNINGS})")
             if cnt >= MAX_WARNINGS:
                 set_user_mute(chat_id, user_id, AUTO_MUTE_MINUTES)
                 send_message(chat_id, f"🚫 {display_name} بەهۆی ناردنی شتی نەشیاو، بۆ ماوەی ١ کاتژمێر لە چاتکردن بێدەنگ کرا!")
