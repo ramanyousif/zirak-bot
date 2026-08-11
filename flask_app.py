@@ -431,15 +431,12 @@ def is_sticker_blocked(msg: dict) -> tuple:
             if contains_bad_word(norm_fn):
                 return True, "ناردنی میدیای نەشیاو 🔞"
 
-    # ٣. پشکنینی کاپشن
-    cap = (msg.get("caption") or "").lower()
-    if cap:
-        norm_cap = normalize_kurdish(cap)
-        for kw in NSFW_KEYWORDS:
-            if kw in cap or kw in norm_cap:
-                return True, "ناردنی کاپشنی نەشیاو 🔞"
-
-    return False, ""
+def is_forwarded_message(msg: dict) -> bool:
+    """پشکنینی ئەوەی ئایا پەیامەکە فۆڕوەرد (Forward) کراوە لە کەناڵ یان چاتی تر"""
+    return any(k in msg for k in [
+        "forward_date", "forward_from", "forward_from_chat", 
+        "forward_sender_name", "forward_origin", "forward_from_message_id"
+    ])
 
 # ═══════════════════════════════════════════════════════════════════════════════
 #  فەنکشنەکانی تیلیگرام
@@ -677,10 +674,15 @@ def handle_message(msg: dict):
     if not is_user_admin:
         violation = ""
 
-        if contains_link_or_spam(msg, text):
+        # ڕێگری لە فۆڕوەرد (Forward) لە کەناڵ و چاتی تر (کە زۆرجار سێکسی و ڕیکلامە)
+        if is_forwarded_message(msg):
+            violation = "ناردنی فۆڕوەرد (Forward) لە کەناڵ یان چاتی تر 🔗"
+        elif contains_link_or_spam(msg, text):
             violation = "ناردنی لینک یان ریکلام 🔗"
         elif contains_bad_word(text):
             violation = "قسەی ناشرین 🤬"
+        elif "video" in msg and not text:
+            violation = "ناردنی ڤیدیۆ بەبێ نووسین 🎥"
 
         if violation:
             delete_message(chat_id, msg_id)

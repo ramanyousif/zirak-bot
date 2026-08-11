@@ -650,10 +650,15 @@ def handle_message(msg: dict):
     if not is_user_admin:
         violation = ""
 
-        if contains_link_or_spam(msg, text):
+        # ڕێگری لە فۆڕوەرد (Forward) لە کەناڵ و چاتی تر (کە زۆرجار سێکسی و ڕیکلامە)
+        if is_forwarded_message(msg):
+            violation = "ناردنی فۆڕوەرد (Forward) لە کەناڵ یان چاتی تر 🔗"
+        elif contains_link_or_spam(msg, text):
             violation = "ناردنی لینک، پۆست یان ریپڵای دوگمەدار 🔗"
         elif contains_bad_word(text):
             violation = "قسەی ناشرین و جنێو 🤬"
+        elif "video" in msg and not text:
+            violation = "ناردنی ڤیدیۆ بەبێ نووسین 🎥"
 
         if violation:
             delete_message(chat_id, msg_id)
