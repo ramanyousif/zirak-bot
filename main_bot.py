@@ -378,6 +378,56 @@ def contains_link_or_spam(msg: dict, text: str) -> bool:
         return True
     return False
 
+# ───── فلتەری توندی ستیکەر و گیف و میدیای نەشیاو و +18 ─────
+NSFW_KEYWORDS = [
+    'porn', 'porno', 'sex', 'sexy', 'nsfw', 'xxx', 'hentai', 'nude', 'naked', 'erotic', 'adult',
+    'boobs', 'tits', 'dick', 'pussy', 'cock', 'cunt', 'milf', 'anal', 'vagina', 'penis',
+    'lust', 'horny', 'sensual', 'fetish', 'bdsm', 'blowjob', 'ass', 'butt', 'dildo',
+    '18plus', 'plus18', 'badgirl', 'badboy', 'lewd', 'ecchi', 'rule34', 'yiff', 'orgasm',
+    'cum', 'sperm', 'hardcore', 'softcore', 'strip', 'stripper', 'penetration', 'uncensored',
+    'gangbang', 'creampie', 'squirt', 'deepthroat', 'masturbat', 'boobies', 'nipples', 'thong',
+    'سێکس', 'سێکسی', 'پۆرن', 'ڕووت', 'قوز', 'قۆز', 'کێر', 'کیر', 'حیز', 'سۆزانی',
+    'قەحبە', 'گەواد', 'گاین', 'داپێنم', 'پینتی', 'گوان', 'مەمک', 'قن', 'کۆم', '18+', '+18'
+]
+
+def is_nsfw_media(msg: dict) -> bool:
+    """پشکنینی وردی ستیکەر، گیف، ڤیدیۆ و وێنە بۆ شتی نەشیاو و +18"""
+    if "sticker" in msg:
+        st = msg["sticker"]
+        set_name = (st.get("set_name") or "").lower()
+        emoji = st.get("emoji") or ""
+        
+        if "🔞" in emoji:
+            return True
+            
+        if set_name:
+            norm_set = normalize_kurdish(set_name.replace('_', ' ').replace('-', ' ').replace('.', ' '))
+            for kw in NSFW_KEYWORDS:
+                if kw in set_name or kw in norm_set:
+                    return True
+            if contains_bad_word(norm_set):
+                return True
+
+    doc = msg.get("animation") or msg.get("document") or msg.get("video") or {}
+    if doc:
+        f_name = (doc.get("file_name") or "").lower()
+        if f_name:
+            norm_fn = normalize_kurdish(f_name.replace('_', ' ').replace('-', ' ').replace('.', ' '))
+            for kw in NSFW_KEYWORDS:
+                if kw in f_name or kw in norm_fn:
+                    return True
+            if contains_bad_word(norm_fn):
+                return True
+
+    cap = (msg.get("caption") or "").lower()
+    if cap:
+        norm_cap = normalize_kurdish(cap)
+        for kw in NSFW_KEYWORDS:
+            if kw in cap or kw in norm_cap:
+                return True
+
+    return False
+
 # ═══════════════════════════════════════════════════════════════════════════════
 #  سیستەمی قوفڵی ئەتۆمی بۆ ڕێگریکردن لە دووبارەبوونەوە (Atomic Schedule Lock)
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -540,9 +590,20 @@ def handle_message(msg: dict):
                 send_message(chat_id, reply, msg_id)
         return
 
-    # 🛡️ ۲. ئاسایشی توندی گروپ (بۆ نا-ئەدمین)
+    # 🛡️ ۲. ئاسایشی توندی گروپ (ستیکەری نەشیاو، قسەی ناشرین و لینک)
     is_user_admin = is_admin(chat_id, user_id)
     msg_is_fwd = is_forwarded_message(msg)
+
+    # ئەگەر ستیکەر، گیف یان وێنەی سێکسی و +18 بێت ڕاستەوخۆ دەسڕدرێتەوە
+    if is_nsfw_media(msg):
+        delete_message(chat_id, msg_id)
+        if not is_user_admin:
+            cnt = add_user_warning(chat_id, user_id)
+            send_message(chat_id, f"⚠️ {display_name} ناردنی ستیکەر یان وێنەی نەشیاو و +18 🔞 قەدەغەیە! ئاگاداری: ({cnt}/{MAX_WARNINGS})")
+            if cnt >= MAX_WARNINGS:
+                set_user_mute(chat_id, user_id, AUTO_MUTE_MINUTES)
+                send_message(chat_id, f"🚫 {display_name} بەهۆی ناردنی شتی نەشیاو، بۆ ماوەی ١ کاتژمێر لە چاتکردن بێدەنگ کرا!")
+        return
 
     if not is_user_admin:
         violation = ""
