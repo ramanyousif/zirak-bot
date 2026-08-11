@@ -403,6 +403,9 @@ def check_image_nsfw_ai(file_id: str) -> bool:
         file_path = file_info["result"].get("file_path", "")
         if not file_path:
             return False
+
+        if file_path.endswith(".tgs"):
+            return False
             
         img_url = f"https://api.telegram.org/file/bot{BOT_TOKEN}/{file_path}"
         proxies = {
@@ -410,12 +413,21 @@ def check_image_nsfw_ai(file_id: str) -> bool:
             "https": "http://proxy.server:3128"
         } if (os.path.exists("/home/ramanyousif2002") or "PYTHONANYWHERE_DOMAIN" in os.environ) else None
         
-        img_res = requests.get(img_url, proxies=proxies, timeout=7)
+        img_res = requests.get(img_url, proxies=proxies, timeout=8)
         if img_res.status_code != 200 or not img_res.content:
             return False
 
+        import io
         import base64
-        b64_img = base64.b64encode(img_res.content).decode("utf-8")
+        try:
+            from PIL import Image
+            img = Image.open(io.BytesIO(img_res.content)).convert("RGB")
+            img.thumbnail((300, 300))
+            buf = io.BytesIO()
+            img.save(buf, format="JPEG", quality=80)
+            b64_img = base64.b64encode(buf.getvalue()).decode("utf-8")
+        except Exception:
+            b64_img = base64.b64encode(img_res.content).decode("utf-8")
 
         v_url = "https://api.groq.com/openai/v1/chat/completions"
         v_headers = {
@@ -430,7 +442,7 @@ def check_image_nsfw_ai(file_id: str) -> bool:
                     "content": [
                         {
                             "type": "text",
-                            "text": "Is this image pornographic, depicting nudity, sexual acts, or NSFW content? Reply with ONLY 'YES' or 'NO'."
+                            "text": "Is this image pornographic, sexually explicit, depicting nudity, sexual intercourse, genitals, or adult +18 NSFW content? Reply with ONLY 'YES' or 'NO'."
                         },
                         {
                             "type": "image_url",
@@ -444,7 +456,7 @@ def check_image_nsfw_ai(file_id: str) -> bool:
             "max_tokens": 10,
             "temperature": 0.1
         }
-        r = requests.post(v_url, headers=v_headers, json=v_payload, proxies=proxies, timeout=8)
+        r = requests.post(v_url, headers=v_headers, json=v_payload, proxies=proxies, timeout=10)
         res_data = r.json()
         if "choices" in res_data and len(res_data["choices"]) > 0:
             ans = res_data["choices"][0]["message"]["content"].strip().upper()
@@ -474,7 +486,12 @@ def is_nsfw_media(msg: dict) -> bool:
             if contains_bad_word(norm_set):
                 return True
 
-        thumb_id = st.get("thumbnail", {}).get("file_id") or st.get("file_id")
+        if st.get("thumbnail"):
+            thumb_id = st["thumbnail"].get("file_id")
+        elif not st.get("is_video") and not st.get("is_animated"):
+            thumb_id = st.get("file_id")
+        elif st.get("is_video"):
+            thumb_id = st.get("thumbnail", {}).get("file_id") or st.get("file_id")
 
     doc = msg.get("animation") or msg.get("document") or msg.get("video") or {}
     if doc:
