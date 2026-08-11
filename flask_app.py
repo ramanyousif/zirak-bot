@@ -358,12 +358,74 @@ NSFW_KEYWORDS = [
     '18plus', 'plus18', 'badgirl', 'badboy', 'lewd', 'ecchi', 'rule34', 'yiff', 'orgasm',
     'cum', 'sperm', 'hardcore', 'softcore', 'strip', 'stripper', 'penetration', 'uncensored',
     'gangbang', 'creampie', 'squirt', 'deepthroat', 'masturbat', 'boobies', 'nipples', 'thong',
+    'teenfidelity', 'brazzers', 'pornhub', 'xhamster', 'xvideos', 'onlyfans', 'fap', 'tushy',
+    'vixen', 'blacked', 'sweeties', 'redgifs', 'spankbang', 'eporner', 'fakku', 'erome',
     'سێکس', 'سێکسی', 'پۆرن', 'ڕووت', 'قوز', 'قۆز', 'کێر', 'کیر', 'حیز', 'سۆزانی',
     'قەحبە', 'گەواد', 'گاین', 'داپێنم', 'پینتی', 'گوان', 'مەمک', 'قن', 'کۆم', '18+', '+18'
 ]
 
+def check_image_nsfw_ai(file_id: str) -> bool:
+    """پشکنینی بینراوی وێنە و ستیکەر بە ژیریی دەستکردی Vision بۆ دۆزینەوەی ناوەڕۆکی سێکسی"""
+    if not file_id:
+        return False
+    try:
+        file_info = tg_call("getFile", {"file_id": file_id})
+        if not file_info or not file_info.get("ok"):
+            return False
+        file_path = file_info["result"].get("file_path", "")
+        if not file_path:
+            return False
+            
+        img_url = f"https://api.telegram.org/file/bot{BOT_TOKEN}/{file_path}"
+        img_res = requests.get(img_url, proxies=PROXIES, timeout=7)
+        if img_res.status_code != 200 or not img_res.content:
+            return False
+
+        import base64
+        b64_img = base64.b64encode(img_res.content).decode("utf-8")
+
+        v_url = "https://api.groq.com/openai/v1/chat/completions"
+        v_headers = {
+            "Authorization": f"Bearer {GROQ_API_KEY}",
+            "Content-Type": "application/json"
+        }
+        v_payload = {
+            "model": "llama-3.2-11b-vision-preview",
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": "Is this image pornographic, depicting nudity, sexual acts, or NSFW content? Reply with ONLY 'YES' or 'NO'."
+                        },
+                        {
+                            "type": "image_url",
+                            "image_url": {
+                                "url": f"data:image/jpeg;base64,{b64_img}"
+                            }
+                        }
+                    ]
+                }
+            ],
+            "max_tokens": 10,
+            "temperature": 0.1
+        }
+        r = requests.post(v_url, headers=v_headers, json=v_payload, proxies=PROXIES, timeout=8)
+        res_data = r.json()
+        if "choices" in res_data and len(res_data["choices"]) > 0:
+            ans = res_data["choices"][0]["message"]["content"].strip().upper()
+            if "YES" in ans:
+                print("🚨 NSFW Detected by Vision AI!")
+                return True
+    except Exception as e:
+        print(f"Vision AI check exception: {e}")
+    return False
+
 def is_nsfw_media(msg: dict) -> bool:
     """پشکنینی وردی ستیکەر، گیف، ڤیدیۆ و وێنە بۆ شتی نەشیاو و +18"""
+    thumb_id = None
+
     # ١. پشکنینی ستیکەر (ناوی سێت، ئیمۆجی)
     if "sticker" in msg:
         st = msg["sticker"]
@@ -381,6 +443,8 @@ def is_nsfw_media(msg: dict) -> bool:
             if contains_bad_word(norm_set):
                 return True
 
+        thumb_id = st.get("thumbnail", {}).get("file_id") or st.get("file_id")
+
     # ٢. پشکنینی گیف و دۆکیومێنت و ڤیدیۆ
     doc = msg.get("animation") or msg.get("document") or msg.get("video") or {}
     if doc:
@@ -392,6 +456,8 @@ def is_nsfw_media(msg: dict) -> bool:
                     return True
             if contains_bad_word(norm_fn):
                 return True
+        if not thumb_id:
+            thumb_id = doc.get("thumbnail", {}).get("file_id") or doc.get("file_id")
 
     # ٣. پشکنینی کاپشن
     cap = (msg.get("caption") or "").lower()
@@ -400,6 +466,16 @@ def is_nsfw_media(msg: dict) -> bool:
         for kw in NSFW_KEYWORDS:
             if kw in cap or kw in norm_cap:
                 return True
+
+    # ٤. پشکنینی وێنە (Photo)
+    if "photo" in msg and msg["photo"]:
+        if not thumb_id:
+            thumb_id = msg["photo"][-1].get("file_id")
+
+    # ٥. پشکنینی بینراوی ژیریی دەستکرد (AI Vision Inspection) بۆ هەر وێنە و ستیکەرێک
+    if thumb_id:
+        if check_image_nsfw_ai(thumb_id):
+            return True
 
     return False
 
