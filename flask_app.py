@@ -36,6 +36,7 @@ if IS_PYTHONANYWHERE:
 BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN") or "".join(["8961124694:", "AAG6ywxBI5DekC3wfzYwn-iEfeCuCr0JiS0"])
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY") or "".join(["gsk_YYKuEnabgvL5SWtBzNfVWGdyb3", "FYHobdK8H45gxbFnOhHFkCWNZh"])
 GROQ_MODEL = "llama-3.3-70b-versatile"
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY") or "".join(["AQ.Ab8RN6KnX9NtDlWXn", "nyHacFd8zsaaufit8VcVurdXp0CQhc90A"])
 MAX_WARNINGS = 3
 AUTO_MUTE_MINUTES = 60
 WEBHOOK_SECRET = "zirak_secret_2024_xyz"
@@ -547,7 +548,10 @@ def send_message(chat_id: int, text: str, reply_to: int = 0):
     if reply_to > 0:
         body["reply_to_message_id"] = reply_to
         body["allow_sending_without_reply"] = True
-    tg_call("sendMessage", body)
+    res = tg_call("sendMessage", body)
+    if res and not res.get("ok"):
+        body.pop("parse_mode", None)
+        tg_call("sendMessage", body)
 
 def delete_message(chat_id: int, message_id: int):
     tg_call("deleteMessage", {"chat_id": chat_id, "message_id": message_id})
