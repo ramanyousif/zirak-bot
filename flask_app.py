@@ -741,7 +741,7 @@ def handle_message(msg: dict):
     is_user_admin = is_admin(chat_id, user_id)
 
     # شێوازی یەکەم: بلۆککردنی ڕاستەوخۆی ستیکەری ڤیدیۆیی، کلیپی سێکسی و سێتە نەشیاوەکان
-    is_blocked, violation_reason = is_sticker_blocked(msg)
+    is_blocked, violation_reason = is_nsfw_media_gemini(msg)
     if is_blocked:
         delete_message(chat_id, msg_id)
         if not is_user_admin:
