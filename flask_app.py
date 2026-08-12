@@ -107,35 +107,41 @@ def clean_ai_text(text: str) -> str:
     return clean.strip()
 
 def call_ai(system_prompt: str, user_prompt: str, history: list = None, max_tokens: int = 500) -> str:
-    """بانگکردنی ڕاستەوخۆی Groq API بە پرۆکسی پارێزراو"""
-    messages = [{"role": "system", "content": system_prompt}]
+    """بانگکردنی Google Gemini 3 Flash (کە لەسەر PythonAnywhere بە تەواوی کراوەیە و زۆر خێرا و زیرەکە)"""
+    contents = []
     if history:
         for item in history[-6:]:
-            messages.append(item)
-    messages.append({"role": "user", "content": user_prompt})
-
-    url = "https://api.groq.com/openai/v1/chat/completions"
-    headers = {
-        "Authorization": f"Bearer {GROQ_API_KEY}",
-        "Content-Type": "application/json"
+            role = "model" if item.get("role") == "assistant" else "user"
+            contents.append({"role": role, "parts": [{"text": item.get("content", "")}]})
+    
+    contents.append({"role": "user", "parts": [{"text": user_prompt}]})
+    
+    g_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key={GEMINI_API_KEY}"
+    g_headers = {
+        "Content-Type": "application/json",
+        "x-goog-api-key": GEMINI_API_KEY
     }
-    payload = {
-        "model": GROQ_MODEL,
-        "messages": messages,
-        "max_tokens": max_tokens,
-        "temperature": 0.7
+    g_payload = {
+        "system_instruction": {
+            "parts": [{"text": system_prompt}]
+        },
+        "contents": contents,
+        "generationConfig": {
+            "temperature": 0.7,
+            "maxOutputTokens": max_tokens
+        }
     }
-
+    
     try:
-        r = requests.post(url, headers=headers, json=payload, proxies=PROXIES, timeout=25)
+        r = requests.post(g_url, headers=g_headers, json=g_payload, proxies=PROXIES, timeout=12)
         data = r.json()
-        if "choices" in data and len(data["choices"]) > 0:
-            ans = data["choices"][0]["message"]["content"]
-            return clean_ai_text(ans)
-        else:
-            print("Groq API Response Error:", data)
+        if "candidates" in data and len(data["candidates"]) > 0:
+            parts = data["candidates"][0].get("content", {}).get("parts", [])
+            for p in parts:
+                if "text" in p and p["text"]:
+                    return clean_ai_text(p["text"])
     except Exception as e:
-        print("Groq API Request Exception:", e)
+        print("Gemini API Error in call_ai:", e)
 
     return None
 
