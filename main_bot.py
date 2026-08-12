@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 """
 بوتی زیرەک - Zirak Telegram Security & AI Bot (24/7 Cloud Ready)
 """
@@ -395,20 +395,98 @@ NSFW_KEYWORDS = [
     'sex', 'hot', 'girls', 'boob', 'ass'
 ]
 
+GEMINI_API_KEY = "".join(["AQ.Ab8RN6KnX9NtDlWXn", "nyHacFd8zsaaufit8VcVurdXp0CQhc90A"])
+
+def check_sticker_nsfw_gemini(file_id: str) -> bool:
+    """
+    Visual AI check for stickers using Google Gemini Vision (Whitelisted on PythonAnywhere)
+    """
+    if not file_id:
+        return False
+    try:
+        file_info = tg_call("getFile", {"file_id": file_id})
+        if not file_info or not file_info.get("ok"):
+            return False
+        file_path = file_info["result"].get("file_path", "")
+        if not file_path or file_path.endswith(".tgs"):
+            return False
+
+        img_url = f"https://api.telegram.org/file/bot{BOT_TOKEN}/{file_path}"
+        proxies = {
+            "http": "http://proxy.server:3128",
+            "https": "http://proxy.server:3128"
+        } if (os.path.exists("/home/ramanyousif2002") or "PYTHONANYWHERE_DOMAIN" in os.environ) else None
+
+        img_res = requests.get(img_url, proxies=proxies, timeout=8)
+        if img_res.status_code != 200 or not img_res.content:
+            return False
+
+        import io
+        import base64
+        try:
+            from PIL import Image
+            img = Image.open(io.BytesIO(img_res.content)).convert("RGB")
+            img.thumbnail((300, 300))
+            buf = io.BytesIO()
+            img.save(buf, format="JPEG", quality=80)
+            b64_img = base64.b64encode(buf.getvalue()).decode("utf-8")
+        except Exception:
+            b64_img = base64.b64encode(img_res.content).decode("utf-8")
+
+        g_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key={GEMINI_API_KEY}"
+        g_headers = {
+            "Content-Type": "application/json",
+            "x-goog-api-key": GEMINI_API_KEY
+        }
+        g_payload = {
+            "contents": [
+                {
+                    "parts": [
+                        {
+                            "text": "Is this image pornographic, depicting explicit nudity, sexual intercourse, exposed genitals, or adult +18 NSFW content? Answer with ONLY 'YES' or 'NO'."
+                        },
+                        {
+                            "inline_data": {
+                                "mime_type": "image/jpeg",
+                                "data": b64_img
+                            }
+                        }
+                    ]
+                }
+            ],
+            "generationConfig": {
+                "temperature": 0.1,
+                "maxOutputTokens": 10
+            }
+        }
+        r = requests.post(g_url, headers=g_headers, json=g_payload, proxies=proxies, timeout=10)
+        res_data = r.json()
+        if "candidates" in res_data and len(res_data["candidates"]) > 0:
+            parts = res_data["candidates"][0].get("content", {}).get("parts", [])
+            for p in parts:
+                txt = p.get("text", "").strip().upper()
+                if "YES" in txt:
+                    print("🚨 Sexy / NSFW sticker detected by Google Gemini Vision AI!")
+                    return True
+                elif "NO" in txt:
+                    return False
+    except Exception as e:
+        print(f"Gemini Vision check exception: {e}")
+    return False
+
 NSFW_PACKS_CACHE = set()
 SAFE_PACKS_CACHE = set()
 
 def is_sticker_blocked(msg: dict) -> tuple:
     """
-    پشکنینی زیرەکی ستیکەرەکان (ڤیدیۆیی و وێنەیی):
-    - ستیکەری ئاسایی ڤیدیۆیی و وێنەیی (کارتوون، میمی کوردی، پێکەنیناوی، ئاژەڵان) ➔ ئازادە و ناسڕدرێتەوە
-    - تەنها ستیکەری سێکسی، ڕووت، پۆرن، یان نەشیاو ➔ ڕاستەوخۆ دەسڕدرێتەوە
+    Intelligent visual filter for stickers (Video & Image) via Google Gemini Vision AI
     """
+    thumb_id = None
+
     if "sticker" in msg:
         st = msg["sticker"]
         emoji = st.get("emoji") or ""
         
-        # ١. ئیمۆجی فەرمی +18
         if "🔞" in emoji:
             return True, "ناردنی ستیکەری نەشیاو و +18 🔞"
 
@@ -416,8 +494,6 @@ def is_sticker_blocked(msg: dict) -> tuple:
         if set_name:
             if set_name in NSFW_PACKS_CACHE:
                 return True, "ناردنی ستیکەری سێکسی و +18 🔞"
-            if set_name in SAFE_PACKS_CACHE:
-                return False, ""
                 
             norm_set = normalize_kurdish(set_name.replace('_', ' ').replace('-', ' ').replace('.', ' '))
             for kw in NSFW_KEYWORDS:
@@ -428,7 +504,6 @@ def is_sticker_blocked(msg: dict) -> tuple:
                 NSFW_PACKS_CACHE.add(set_name)
                 return True, "ناردنی ستیکەری نەشیاو 🔞"
 
-            # داواکردنی ناونیشانی فەرمی سێتی ستیکەرەکە لە تێلیگرام
             try:
                 res = tg_call("getStickerSet", {"name": set_name})
                 if res and res.get("ok"):
@@ -441,13 +516,16 @@ def is_sticker_blocked(msg: dict) -> tuple:
                     if contains_bad_word(norm_title):
                         NSFW_PACKS_CACHE.add(set_name)
                         return True, "ناردنی ستیکەری نەشیاو 🔞"
-                    
-                    # ئەگەر هەموو پشکنینەکان پاک بوون، سێتەکە پاکە و دەمێنێتەوە
-                    SAFE_PACKS_CACHE.add(set_name)
             except Exception:
                 pass
 
-    # ٢. پشکنینی گیف و دۆکیومێنت و ڤیدیۆ
+        if st.get("thumbnail"):
+            thumb_id = st["thumbnail"].get("file_id")
+        elif not st.get("is_video") and not st.get("is_animated"):
+            thumb_id = st.get("file_id")
+        elif st.get("is_video"):
+            thumb_id = st.get("thumbnail", {}).get("file_id") or st.get("file_id")
+
     doc = msg.get("animation") or msg.get("document") or msg.get("video") or {}
     if doc:
         f_name = (doc.get("file_name") or "").lower()
@@ -458,14 +536,12 @@ def is_sticker_blocked(msg: dict) -> tuple:
                     return True, "ناردنی میدیای نەشیاو 🔞"
             if contains_bad_word(norm_fn):
                 return True, "ناردنی میدیای نەشیاو 🔞"
+        if not thumb_id:
+            thumb_id = doc.get("thumbnail", {}).get("file_id") or doc.get("file_id")
 
-    # ٣. پشکنینی کاپشن
-    cap = (msg.get("caption") or "").lower()
-    if cap:
-        norm_cap = normalize_kurdish(cap)
-        for kw in NSFW_KEYWORDS:
-            if kw in cap or kw in norm_cap:
-                return True, "ناردنی کاپشنی نەشیاو 🔞"
+    if thumb_id:
+        if check_sticker_nsfw_gemini(thumb_id):
+            return True, "ناردنی ستیکەر یان وێنەی سێکسی و +18 🔞"
 
     return False, ""
 
