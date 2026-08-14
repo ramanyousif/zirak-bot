@@ -376,9 +376,9 @@ NSFW_KEYWORDS = [
 
 GEMINI_API_KEY = "".join(["AQ.Ab8RN6KnX9NtDlWXn", "nyHacFd8zsaaufit8VcVurdXp0CQhc90A"])
 
-def check_sticker_nsfw_gemini(file_id: str) -> bool:
+def check_media_nsfw_gemini(file_id: str) -> bool:
     """
-    Visual AI check for stickers using Google Gemini Vision (Whitelisted on PythonAnywhere)
+    Visual AI check for Stickers, GIFs, and Photos using Google Gemini Vision (Whitelisted on PythonAnywhere)
     """
     if not file_id:
         return False
@@ -417,7 +417,7 @@ def check_sticker_nsfw_gemini(file_id: str) -> bool:
                 {
                     "parts": [
                         {
-                            "text": "Is this image pornographic, depicting explicit nudity, sexual intercourse, exposed genitals, or adult +18 NSFW content? Answer with ONLY 'YES' or 'NO'."
+                            "text": "Is this image or sticker or GIF pornographic, depicting explicit nudity, sexual intercourse, exposed genitals, or adult +18 NSFW content? Answer with ONLY 'YES' or 'NO'."
                         },
                         {
                             "inline_data": {
@@ -430,7 +430,7 @@ def check_sticker_nsfw_gemini(file_id: str) -> bool:
             ],
             "generationConfig": {
                 "temperature": 0.1,
-                "maxOutputTokens": 10
+                "maxOutputTokens": 300
             }
         }
         r = requests.post(g_url, headers=g_headers, json=g_payload, proxies=PROXIES, timeout=10)
@@ -440,7 +440,7 @@ def check_sticker_nsfw_gemini(file_id: str) -> bool:
             for p in parts:
                 txt = p.get("text", "").strip().upper()
                 if "YES" in txt:
-                    print("🚨 Sexy / NSFW sticker detected by Google Gemini Vision AI!")
+                    print("🚨 Sexy / NSFW media detected by Google Gemini Vision AI!")
                     return True
                 elif "NO" in txt:
                     return False
@@ -448,12 +448,14 @@ def check_sticker_nsfw_gemini(file_id: str) -> bool:
         print(f"Gemini Vision check exception: {e}")
     return False
 
+check_sticker_nsfw_gemini = check_media_nsfw_gemini
+
 NSFW_PACKS_CACHE = set()
 SAFE_PACKS_CACHE = set()
 
-def is_sticker_blocked(msg: dict) -> tuple:
+def is_nsfw_media_gemini(msg: dict) -> tuple:
     """
-    Intelligent visual filter for stickers (Video & Image) via Google Gemini Vision AI
+    Intelligent visual filter for stickers and GIFs via Google Gemini Vision AI
     """
     thumb_id = None
 
@@ -500,8 +502,20 @@ def is_sticker_blocked(msg: dict) -> tuple:
         elif st.get("is_video"):
             thumb_id = st.get("thumbnail", {}).get("file_id") or st.get("file_id")
 
-    doc = msg.get("animation") or msg.get("document") or msg.get("video") or {}
-    if doc:
+    if "animation" in msg:
+        anim = msg["animation"]
+        f_name = (anim.get("file_name") or "").lower()
+        if f_name:
+            norm_fn = normalize_kurdish(f_name.replace('_', ' ').replace('-', ' ').replace('.', ' '))
+            for kw in NSFW_KEYWORDS:
+                if kw in f_name or kw in norm_fn:
+                    return True, "ناردنی گیفی نەشیاو و +18 🔞"
+            if contains_bad_word(norm_fn):
+                return True, "ناردنی گیفی نەشیاو 🔞"
+        thumb_id = anim.get("thumbnail", {}).get("file_id") or anim.get("file_id")
+
+    doc = msg.get("document") or msg.get("video") or {}
+    if doc and not thumb_id:
         f_name = (doc.get("file_name") or "").lower()
         if f_name:
             norm_fn = normalize_kurdish(f_name.replace('_', ' ').replace('-', ' ').replace('.', ' '))
@@ -510,14 +524,18 @@ def is_sticker_blocked(msg: dict) -> tuple:
                     return True, "ناردنی میدیای نەشیاو 🔞"
             if contains_bad_word(norm_fn):
                 return True, "ناردنی میدیای نەشیاو 🔞"
-        if not thumb_id:
-            thumb_id = doc.get("thumbnail", {}).get("file_id") or doc.get("file_id")
+        thumb_id = doc.get("thumbnail", {}).get("file_id") or doc.get("file_id")
+
+    if "photo" in msg and msg["photo"] and not thumb_id:
+        thumb_id = msg["photo"][-1].get("file_id")
 
     if thumb_id:
-        if check_sticker_nsfw_gemini(thumb_id):
-            return True, "ناردنی ستیکەر یان وێنەی سێکسی و +18 🔞"
+        if check_media_nsfw_gemini(thumb_id):
+            return True, "ناردنی ستیکەر یان گیفی سێکسی و +18 🔞"
 
     return False, ""
+
+is_sticker_blocked = is_nsfw_media_gemini
 
 def is_forwarded_message(msg: dict) -> bool:
     """پشکنینی ئەوەی ئایا پەیامەکە فۆڕوەرد (Forward) کراوە لە کەناڵ یان چاتی تر"""
