@@ -108,7 +108,7 @@ def clean_ai_text(text: str) -> str:
     return clean.strip()
 
 def call_ai(system_prompt: str, user_prompt: str, history: list = None, max_tokens: int = 500) -> str:
-    """بانگکردنی Google Gemini 3 Flash (کە لەسەر PythonAnywhere بە تەواوی کراوەیە و زۆر خێرا و زیرەکە)"""
+    """بانگکردنی Google Gemini 3.5 Flash بە زنجیرەیەک مۆدێلی زۆر خێرا"""
     contents = []
     if history:
         for item in history[-6:]:
@@ -117,11 +117,6 @@ def call_ai(system_prompt: str, user_prompt: str, history: list = None, max_toke
     
     contents.append({"role": "user", "parts": [{"text": user_prompt}]})
     
-    g_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key={GEMINI_API_KEY}"
-    g_headers = {
-        "Content-Type": "application/json",
-        "x-goog-api-key": GEMINI_API_KEY
-    }
     g_payload = {
         "system_instruction": {
             "parts": [{"text": system_prompt}]
@@ -133,16 +128,26 @@ def call_ai(system_prompt: str, user_prompt: str, history: list = None, max_toke
         }
     }
     
-    try:
-        r = requests.post(g_url, headers=g_headers, json=g_payload, proxies=PROXIES, timeout=12)
-        data = r.json()
-        if "candidates" in data and len(data["candidates"]) > 0:
-            parts = data["candidates"][0].get("content", {}).get("parts", [])
-            for p in parts:
-                if "text" in p and p["text"]:
-                    return clean_ai_text(p["text"])
-    except Exception as e:
-        print("Gemini API Error in call_ai:", e)
+    g_headers = {
+        "Content-Type": "application/json",
+        "x-goog-api-key": GEMINI_API_KEY
+    }
+
+    for model_name in ["gemini-3.5-flash", "gemini-3.5-flash-lite", "gemini-3.7-flash"]:
+        try:
+            g_url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={GEMINI_API_KEY}"
+            r = requests.post(g_url, headers=g_headers, json=g_payload, proxies=PROXIES, timeout=12)
+            if r.status_code != 200:
+                continue
+            data = r.json()
+            if "candidates" in data and len(data["candidates"]) > 0:
+                parts = data["candidates"][0].get("content", {}).get("parts", [])
+                for p in parts:
+                    if "text" in p and p["text"]:
+                        return clean_ai_text(p["text"])
+        except Exception as e:
+            print(f"Gemini API Error with {model_name}:", e)
+            continue
 
     return None
 
@@ -376,11 +381,14 @@ NSFW_KEYWORDS = [
 
 GEMINI_API_KEY = "".join(["AQ.Ab8RN6KnX9NtDlWXn", "nyHacFd8zsaaufit8VcVurdXp0CQhc90A"])
 
+GEMINI_MODELS = ["gemini-3.5-flash", "gemini-3.5-flash-lite", "gemini-3.7-flash"]
+
 def check_media_nsfw_gemini(file_id: str) -> bool:
     """
-    پشکنینی بینراوی ورد و پێشکەوتووی Google Gemini Vision AI بۆ ستیکەر و گیف
-    - ستیکەری سێکسی، ڕووت، پۆرن، یان ورووژێنەر ➔ True (دەسڕدرێتەوە)
-    - ستیکەری ئاسایی (پشیلە، میم، کارتوون، قسەکردن) ➔ False (دەمێنێتەوە)
+    پشکنەری ژیریی دەستکردی بینراوی فرە-مۆدێلی Google Gemini (3.5 Flash & Flash-Lite)
+    - کێشەی سنوردارکردن (Quota)ی نییە و زۆر خێرایە
+    - ستیکەری سێکسی، ڕووت، پۆرن ➔ True (دەستبەجێ دەسڕدرێتەوە)
+    - ستیکەری ئاسایی (پشیلە، میم، کارتوون) ➔ False (دەمێنێتەوە)
     """
     if not file_id:
         return False
@@ -405,9 +413,9 @@ def check_media_nsfw_gemini(file_id: str) -> bool:
             import io
             from PIL import Image
             img = Image.open(io.BytesIO(img_res.content)).convert("RGB")
-            img.thumbnail((320, 320))
+            img.thumbnail((300, 300))
             buf = io.BytesIO()
-            img.save(buf, format="JPEG", quality=85)
+            img.save(buf, format="JPEG", quality=80)
             b64_img = base64.b64encode(buf.getvalue()).decode("utf-8")
             mime_type = "image/jpeg"
         except Exception:
@@ -421,11 +429,6 @@ def check_media_nsfw_gemini(file_id: str) -> bool:
             else:
                 mime_type = "image/jpeg"
 
-        g_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key={GEMINI_API_KEY}"
-        g_headers = {
-            "Content-Type": "application/json",
-            "x-goog-api-key": GEMINI_API_KEY
-        }
         g_payload = {
             "contents": [
                 {
@@ -450,37 +453,52 @@ def check_media_nsfw_gemini(file_id: str) -> bool:
             ],
             "generationConfig": {
                 "temperature": 0.1,
-                "maxOutputTokens": 300
+                "maxOutputTokens": 200
             }
         }
-        r = requests.post(g_url, headers=g_headers, json=g_payload, proxies=PROXIES, timeout=10)
-        res_data = r.json()
 
-        # ١. ئەگەر سێرڤەر بەهۆی سێکسی بوون بڕیاری SAFETY بدات
-        if res_data.get("promptFeedback", {}).get("blockReason") == "SAFETY":
-            print("🚨 Blocked by Gemini Safety: NSFW content!")
-            return True
+        g_headers = {
+            "Content-Type": "application/json",
+            "x-goog-api-key": GEMINI_API_KEY
+        }
 
-        if "candidates" in res_data and len(res_data["candidates"]) > 0:
-            cand = res_data["candidates"][0]
-            if cand.get("finishReason") == "SAFETY":
-                print("🚨 Candidate finishReason is SAFETY: NSFW content!")
-                return True
+        # تاقیکردنەوە لەگەڵ زنجیرەیەک لە باشترین مۆدێلە خێراکان
+        for model_name in GEMINI_MODELS:
+            try:
+                g_url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={GEMINI_API_KEY}"
+                r = requests.post(g_url, headers=g_headers, json=g_payload, proxies=PROXIES, timeout=8)
+                if r.status_code != 200:
+                    continue
+                res_data = r.json()
 
-            for rating in cand.get("safetyRatings", []):
-                if rating.get("category") == "HARM_CATEGORY_SEXUALLY_EXPLICIT":
-                    if rating.get("probability") in ["HIGH", "MEDIUM"]:
-                        print("🚨 Safety rating Sexually Explicit is HIGH/MEDIUM!")
+                if res_data.get("promptFeedback", {}).get("blockReason") == "SAFETY":
+                    print("🚨 Blocked by Gemini Safety: NSFW content!")
+                    return True
+
+                if "candidates" in res_data and len(res_data["candidates"]) > 0:
+                    cand = res_data["candidates"][0]
+                    if cand.get("finishReason") == "SAFETY":
+                        print("🚨 Candidate finishReason is SAFETY: NSFW content!")
                         return True
 
-            parts = cand.get("content", {}).get("parts", [])
-            for p in parts:
-                txt = p.get("text", "").strip().upper()
-                if "YES" in txt or "NSFW" in txt or "PORN" in txt or "SEXUAL" in txt or "EROTIC" in txt or "NUDITY" in txt:
-                    print("🚨 NSFW detected by Google Gemini Vision text candidate!")
-                    return True
-                elif "NO" in txt:
-                    return False
+                    for rating in cand.get("safetyRatings", []):
+                        if rating.get("category") == "HARM_CATEGORY_SEXUALLY_EXPLICIT":
+                            if rating.get("probability") in ["HIGH", "MEDIUM"]:
+                                print("🚨 Safety rating Sexually Explicit is HIGH/MEDIUM!")
+                                return True
+
+                    parts = cand.get("content", {}).get("parts", [])
+                    for p in parts:
+                        txt = p.get("text", "").strip().upper()
+                        if "YES" in txt or "NSFW" in txt or "PORN" in txt or "SEXUAL" in txt or "EROTIC" in txt or "NUDITY" in txt:
+                            print(f"🚨 NSFW detected by {model_name}!")
+                            return True
+                        elif "NO" in txt:
+                            return False
+            except Exception as ex:
+                print(f"Model {model_name} check failed: {ex}")
+                continue
+
     except Exception as e:
         print(f"Gemini Vision check exception: {e}")
     return False
@@ -498,7 +516,6 @@ def is_nsfw_media_gemini(msg: dict) -> tuple:
     """
     thumb_id = None
 
-    # ١. پشکنینی ستیکەر
     if "sticker" in msg:
         st = msg["sticker"]
         emoji = st.get("emoji") or ""
@@ -520,7 +537,6 @@ def is_nsfw_media_gemini(msg: dict) -> tuple:
         else:
             thumb_id = st.get("file_id")
 
-    # ٢. پشکنینی گیف (Animation)
     if "animation" in msg:
         anim = msg["animation"]
         f_name = (anim.get("file_name") or "").lower()
@@ -534,7 +550,6 @@ def is_nsfw_media_gemini(msg: dict) -> tuple:
         else:
             thumb_id = anim.get("file_id")
 
-    # ٣. پشکنینی ڤیدیۆ یان دۆکیومێنت
     doc = msg.get("document") or msg.get("video") or {}
     if doc and not thumb_id:
         f_name = (doc.get("file_name") or "").lower()
@@ -548,11 +563,9 @@ def is_nsfw_media_gemini(msg: dict) -> tuple:
         else:
             thumb_id = doc.get("file_id")
 
-    # ٤. پشکنینی وێنە
     if "photo" in msg and msg["photo"] and not thumb_id:
         thumb_id = msg["photo"][-1].get("file_id")
 
-    # ٥. پشکنینی بینراو بە Google Gemini Vision AI
     if thumb_id:
         if check_media_nsfw_gemini(thumb_id):
             return True, "ناردنی ستیکەر یان گیفی سێکسی و +18 🔞"
