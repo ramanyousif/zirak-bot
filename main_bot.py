@@ -711,32 +711,33 @@ def handle_message(msg: dict):
                 send_message(chat_id, reply, msg_id)
         return
 
-    # 🛡️ ۲. ئاسایشی توندی گروپ (ستیکەری ڤیدیۆیی/نەشیاو، قسەی ناشرین و لینک)
+    # 🛡️ ۲. ئاسایشی توندی گروپ (سڕینەوەی دەستبەجێی ستیکەر، گیف، فۆڕوەرد، لینک و جنێو بۆ ئەندامان)
     is_user_admin = is_admin(chat_id, user_id)
-    msg_is_fwd = is_forwarded_message(msg)
-
-    # شێوازی یەکەم: بلۆککردنی ڕاستەوخۆی ستیکەری ڤیدیۆیی، کلیپی سێکسی و سێتە نەشیاوەکان
-    is_blocked, violation_reason = is_nsfw_media_gemini(msg)
-    if is_blocked:
-        delete_message(chat_id, msg_id)
-        if not is_user_admin:
-            cnt = add_user_warning(chat_id, user_id)
-            send_message(chat_id, f"⚠️ {display_name} {violation_reason} قەدەغەیە! ئاگاداری: ({cnt}/{MAX_WARNINGS})")
-            if cnt >= MAX_WARNINGS:
-                set_user_mute(chat_id, user_id, AUTO_MUTE_MINUTES)
-                send_message(chat_id, f"🚫 {display_name} بەهۆی ناردنی شتی نەشیاو، بۆ ماوەی ١ کاتژمێر لە چاتکردن بێدەنگ کرا!")
-        return
 
     if not is_user_admin:
         violation = ""
 
-        # ڕێگری لە فۆڕوەرد (Forward) لە کەناڵ و چاتی تر (کە زۆرجار سێکسی و ڕیکلامە)
-        if is_forwarded_message(msg):
+        # ١. ستیکەر (هەموو جۆرە ستیکەرێک بۆ ئەندامان قەدەغەیە تا هیچ شتێکی نەشیاو نەیەتە ناو گروپ)
+        if "sticker" in msg:
+            violation = "ناردنی ستیکەر 🚫"
+
+        # ٢. گیف (GIF)
+        elif "animation" in msg:
+            violation = "ناردنی گیف (GIF) 🚫"
+
+        # ٣. فۆڕوەرد لە کەناڵ یان چاتی تر
+        elif is_forwarded_message(msg):
             violation = "ناردنی فۆڕوەرد (Forward) لە کەناڵ یان چاتی تر 🔗"
+
+        # ٤. لینک و ڕیکلام
         elif contains_link_or_spam(msg, text):
-            violation = "ناردنی لینک، پۆست یان ریپڵای دوگمەدار 🔗"
+            violation = "ناردنی لینک یان ریکلام 🔗"
+
+        # ٥. قسەی ناشرین و جنێو
         elif contains_bad_word(text):
-            violation = "قسەی ناشرین و جنێو 🤬"
+            violation = "قسەی ناشرین 🤬"
+
+        # ٦. ڤیدیۆی بێ نووسین
         elif "video" in msg and not text:
             violation = "ناردنی ڤیدیۆ بەبێ نووسین 🎥"
 
