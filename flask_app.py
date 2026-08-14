@@ -378,7 +378,9 @@ GEMINI_API_KEY = "".join(["AQ.Ab8RN6KnX9NtDlWXn", "nyHacFd8zsaaufit8VcVurdXp0CQh
 
 def check_media_nsfw_gemini(file_id: str) -> bool:
     """
-    Visual AI check for Stickers, GIFs, and Photos using Google Gemini Vision (Whitelisted on PythonAnywhere)
+    پشکنینی بینراوی ورد و پێشکەوتووی Google Gemini Vision AI بۆ ستیکەر و گیف
+    - ستیکەری سێکسی، ڕووت، پۆرن، یان ورووژێنەر ➔ True (دەسڕدرێتەوە)
+    - ستیکەری ئاسایی (پشیلە، میم، کارتوون، قسەکردن) ➔ False (دەمێنێتەوە)
     """
     if not file_id:
         return False
@@ -403,9 +405,9 @@ def check_media_nsfw_gemini(file_id: str) -> bool:
             import io
             from PIL import Image
             img = Image.open(io.BytesIO(img_res.content)).convert("RGB")
-            img.thumbnail((300, 300))
+            img.thumbnail((320, 320))
             buf = io.BytesIO()
-            img.save(buf, format="JPEG", quality=80)
+            img.save(buf, format="JPEG", quality=85)
             b64_img = base64.b64encode(buf.getvalue()).decode("utf-8")
             mime_type = "image/jpeg"
         except Exception:
@@ -429,7 +431,7 @@ def check_media_nsfw_gemini(file_id: str) -> bool:
                 {
                     "parts": [
                         {
-                            "text": "Carefully inspect this image or sticker or GIF. Does it depict pornography, explicit sexual acts, nudity, erotic genitals, breasts, buttocks, or adult +18 NSFW content? Answer with ONLY 'YES' or 'NO'."
+                            "text": "Inspect this image or sticker or GIF thumbnail carefully. Does it depict pornography, nudity, explicit sexual intercourse, exposed breasts/genitals/buttocks, underwear, erotic or adult +18 NSFW content? Answer with ONLY 'YES' if it contains any sexual/erotic/+18 NSFW content, or 'NO' if it is safe and clean."
                         },
                         {
                             "inline_data": {
@@ -440,6 +442,12 @@ def check_media_nsfw_gemini(file_id: str) -> bool:
                     ]
                 }
             ],
+            "safetySettings": [
+                {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
+                {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
+                {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
+                {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"}
+            ],
             "generationConfig": {
                 "temperature": 0.1,
                 "maxOutputTokens": 300
@@ -447,12 +455,29 @@ def check_media_nsfw_gemini(file_id: str) -> bool:
         }
         r = requests.post(g_url, headers=g_headers, json=g_payload, proxies=PROXIES, timeout=10)
         res_data = r.json()
+
+        # ١. ئەگەر سێرڤەر بەهۆی سێکسی بوون بڕیاری SAFETY بدات
+        if res_data.get("promptFeedback", {}).get("blockReason") == "SAFETY":
+            print("🚨 Blocked by Gemini Safety: NSFW content!")
+            return True
+
         if "candidates" in res_data and len(res_data["candidates"]) > 0:
-            parts = res_data["candidates"][0].get("content", {}).get("parts", [])
+            cand = res_data["candidates"][0]
+            if cand.get("finishReason") == "SAFETY":
+                print("🚨 Candidate finishReason is SAFETY: NSFW content!")
+                return True
+
+            for rating in cand.get("safetyRatings", []):
+                if rating.get("category") == "HARM_CATEGORY_SEXUALLY_EXPLICIT":
+                    if rating.get("probability") in ["HIGH", "MEDIUM"]:
+                        print("🚨 Safety rating Sexually Explicit is HIGH/MEDIUM!")
+                        return True
+
+            parts = cand.get("content", {}).get("parts", [])
             for p in parts:
                 txt = p.get("text", "").strip().upper()
-                if "YES" in txt:
-                    print("🚨 NSFW detected by Gemini Vision AI!")
+                if "YES" in txt or "NSFW" in txt or "PORN" in txt or "SEXUAL" in txt or "EROTIC" in txt or "NUDITY" in txt:
+                    print("🚨 NSFW detected by Google Gemini Vision text candidate!")
                     return True
                 elif "NO" in txt:
                     return False
@@ -467,9 +492,9 @@ SAFE_PACKS_CACHE = set()
 
 def is_nsfw_media_gemini(msg: dict) -> tuple:
     """
-    پشکنەری زیرەکی بینراو (AI Vision):
-    - ستیکەری ئاسایی و گیفی ئاسایی ➔ ئازادە و ناسڕدرێتەوە
-    - ستیکەری سێکسی و گیفی سێکسی (+18) ➔ دەبینرێت و ڕاستەوخۆ دەسڕدرێتەوە
+    پشکنەری ژیریی دەستکردی بینراو:
+    - ستیکەری ئاسایی (پشیلە، کارتوون) و گیفی ئاسایی ➔ ئازادە
+    - ستیکەر و گیفی سێکسی و +18 ➔ دەسڕدرێتەوە
     """
     thumb_id = None
 
@@ -492,12 +517,10 @@ def is_nsfw_media_gemini(msg: dict) -> tuple:
 
         if st.get("thumbnail"):
             thumb_id = st["thumbnail"].get("file_id")
-        elif not st.get("is_video") and not st.get("is_animated"):
+        else:
             thumb_id = st.get("file_id")
-        elif st.get("is_video"):
-            thumb_id = st.get("thumbnail", {}).get("file_id") or st.get("file_id")
 
-    # ٢. پشکنینی گیف (Animation / GIF)
+    # ٢. پشکنینی گیف (Animation)
     if "animation" in msg:
         anim = msg["animation"]
         f_name = (anim.get("file_name") or "").lower()
@@ -506,9 +529,12 @@ def is_nsfw_media_gemini(msg: dict) -> tuple:
             for kw in NSFW_KEYWORDS:
                 if kw in f_name or kw in norm_fn:
                     return True, "ناردنی گیفی نەشیاو 🔞"
-        thumb_id = anim.get("thumbnail", {}).get("file_id") or anim.get("file_id")
+        if anim.get("thumbnail"):
+            thumb_id = anim["thumbnail"].get("file_id")
+        else:
+            thumb_id = anim.get("file_id")
 
-    # ٣. پشکنینی دۆکیومێنت یان ڤیدیۆ
+    # ٣. پشکنینی ڤیدیۆ یان دۆکیومێنت
     doc = msg.get("document") or msg.get("video") or {}
     if doc and not thumb_id:
         f_name = (doc.get("file_name") or "").lower()
@@ -517,13 +543,16 @@ def is_nsfw_media_gemini(msg: dict) -> tuple:
             for kw in NSFW_KEYWORDS:
                 if kw in f_name or kw in norm_fn:
                     return True, "ناردنی میدیای نەشیاو 🔞"
-        thumb_id = doc.get("thumbnail", {}).get("file_id") or doc.get("file_id")
+        if doc.get("thumbnail"):
+            thumb_id = doc["thumbnail"].get("file_id")
+        else:
+            thumb_id = doc.get("file_id")
 
-    # ٤. پشکنینی وێنە (Photo)
+    # ٤. پشکنینی وێنە
     if "photo" in msg and msg["photo"] and not thumb_id:
         thumb_id = msg["photo"][-1].get("file_id")
 
-    # ٥. پشکنینی بینراوی چاوی Google Gemini Vision AI
+    # ٥. پشکنینی بینراو بە Google Gemini Vision AI
     if thumb_id:
         if check_media_nsfw_gemini(thumb_id):
             return True, "ناردنی ستیکەر یان گیفی سێکسی و +18 🔞"
