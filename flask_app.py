@@ -395,17 +395,29 @@ def check_media_nsfw_gemini(file_id: str) -> bool:
         if img_res.status_code != 200 or not img_res.content:
             return False
 
-        import io
         import base64
+        mime_type = "image/jpeg"
+        b64_img = ""
+        
         try:
+            import io
             from PIL import Image
             img = Image.open(io.BytesIO(img_res.content)).convert("RGB")
             img.thumbnail((300, 300))
             buf = io.BytesIO()
             img.save(buf, format="JPEG", quality=80)
             b64_img = base64.b64encode(buf.getvalue()).decode("utf-8")
+            mime_type = "image/jpeg"
         except Exception:
             b64_img = base64.b64encode(img_res.content).decode("utf-8")
+            if file_path.endswith(".webp"):
+                mime_type = "image/webp"
+            elif file_path.endswith(".png"):
+                mime_type = "image/png"
+            elif file_path.endswith(".gif"):
+                mime_type = "image/gif"
+            else:
+                mime_type = "image/jpeg"
 
         g_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key={GEMINI_API_KEY}"
         g_headers = {
@@ -417,11 +429,11 @@ def check_media_nsfw_gemini(file_id: str) -> bool:
                 {
                     "parts": [
                         {
-                            "text": "Is this image or sticker or GIF pornographic, depicting explicit nudity, sexual intercourse, exposed genitals, or adult +18 NSFW content? Answer with ONLY 'YES' or 'NO'."
+                            "text": "Carefully inspect this image or sticker or GIF. Does it depict pornography, explicit sexual acts, nudity, erotic genitals, breasts, buttocks, or adult +18 NSFW content? Answer with ONLY 'YES' or 'NO'."
                         },
                         {
                             "inline_data": {
-                                "mime_type": "image/jpeg",
+                                "mime_type": mime_type,
                                 "data": b64_img
                             }
                         }
@@ -440,7 +452,7 @@ def check_media_nsfw_gemini(file_id: str) -> bool:
             for p in parts:
                 txt = p.get("text", "").strip().upper()
                 if "YES" in txt:
-                    print("🚨 Sexy / NSFW media detected by Google Gemini Vision AI!")
+                    print("🚨 NSFW detected by Gemini Vision AI!")
                     return True
                 elif "NO" in txt:
                     return False
@@ -455,45 +467,28 @@ SAFE_PACKS_CACHE = set()
 
 def is_nsfw_media_gemini(msg: dict) -> tuple:
     """
-    Intelligent visual filter for stickers and GIFs via Google Gemini Vision AI
+    پشکنەری زیرەکی بینراو (AI Vision):
+    - ستیکەری ئاسایی و گیفی ئاسایی ➔ ئازادە و ناسڕدرێتەوە
+    - ستیکەری سێکسی و گیفی سێکسی (+18) ➔ دەبینرێت و ڕاستەوخۆ دەسڕدرێتەوە
     """
     thumb_id = None
 
+    # ١. پشکنینی ستیکەر
     if "sticker" in msg:
         st = msg["sticker"]
         emoji = st.get("emoji") or ""
-        
         if "🔞" in emoji:
-            return True, "ناردنی ستیکەری نەشیاو و +18 🔞"
+            return True, "ناردنی ستیکەری نەشیاو 🔞"
 
         set_name = (st.get("set_name") or "").lower()
         if set_name:
             if set_name in NSFW_PACKS_CACHE:
-                return True, "ناردنی ستیکەری سێکسی و +18 🔞"
-                
+                return True, "ناردنی ستیکەری سێکسی 🔞"
             norm_set = normalize_kurdish(set_name.replace('_', ' ').replace('-', ' ').replace('.', ' '))
             for kw in NSFW_KEYWORDS:
                 if kw in set_name or kw in norm_set:
                     NSFW_PACKS_CACHE.add(set_name)
-                    return True, "ناردنی ستیکەری سێکسی و +18 🔞"
-            if contains_bad_word(norm_set):
-                NSFW_PACKS_CACHE.add(set_name)
-                return True, "ناردنی ستیکەری نەشیاو 🔞"
-
-            try:
-                res = tg_call("getStickerSet", {"name": set_name})
-                if res and res.get("ok"):
-                    title = (res["result"].get("title") or "").lower()
-                    norm_title = normalize_kurdish(title.replace('_', ' ').replace('-', ' ').replace('.', ' '))
-                    for kw in NSFW_KEYWORDS:
-                        if kw in title or kw in norm_title:
-                            NSFW_PACKS_CACHE.add(set_name)
-                            return True, "ناردنی ستیکەری سێکسی و +18 🔞"
-                    if contains_bad_word(norm_title):
-                        NSFW_PACKS_CACHE.add(set_name)
-                        return True, "ناردنی ستیکەری نەشیاو 🔞"
-            except Exception:
-                pass
+                    return True, "ناردنی ستیکەری سێکسی 🔞"
 
         if st.get("thumbnail"):
             thumb_id = st["thumbnail"].get("file_id")
@@ -502,6 +497,7 @@ def is_nsfw_media_gemini(msg: dict) -> tuple:
         elif st.get("is_video"):
             thumb_id = st.get("thumbnail", {}).get("file_id") or st.get("file_id")
 
+    # ٢. پشکنینی گیف (Animation / GIF)
     if "animation" in msg:
         anim = msg["animation"]
         f_name = (anim.get("file_name") or "").lower()
@@ -509,11 +505,10 @@ def is_nsfw_media_gemini(msg: dict) -> tuple:
             norm_fn = normalize_kurdish(f_name.replace('_', ' ').replace('-', ' ').replace('.', ' '))
             for kw in NSFW_KEYWORDS:
                 if kw in f_name or kw in norm_fn:
-                    return True, "ناردنی گیفی نەشیاو و +18 🔞"
-            if contains_bad_word(norm_fn):
-                return True, "ناردنی گیفی نەشیاو 🔞"
+                    return True, "ناردنی گیفی نەشیاو 🔞"
         thumb_id = anim.get("thumbnail", {}).get("file_id") or anim.get("file_id")
 
+    # ٣. پشکنینی دۆکیومێنت یان ڤیدیۆ
     doc = msg.get("document") or msg.get("video") or {}
     if doc and not thumb_id:
         f_name = (doc.get("file_name") or "").lower()
@@ -522,13 +517,13 @@ def is_nsfw_media_gemini(msg: dict) -> tuple:
             for kw in NSFW_KEYWORDS:
                 if kw in f_name or kw in norm_fn:
                     return True, "ناردنی میدیای نەشیاو 🔞"
-            if contains_bad_word(norm_fn):
-                return True, "ناردنی میدیای نەشیاو 🔞"
         thumb_id = doc.get("thumbnail", {}).get("file_id") or doc.get("file_id")
 
+    # ٤. پشکنینی وێنە (Photo)
     if "photo" in msg and msg["photo"] and not thumb_id:
         thumb_id = msg["photo"][-1].get("file_id")
 
+    # ٥. پشکنینی بینراوی چاوی Google Gemini Vision AI
     if thumb_id:
         if check_media_nsfw_gemini(thumb_id):
             return True, "ناردنی ستیکەر یان گیفی سێکسی و +18 🔞"
@@ -765,35 +760,35 @@ def handle_message(msg: dict):
                 send_message(chat_id, reply, msg_id)
         return
 
-    # 🛡️ ۲. ئاسایشی توندی گروپ (سڕینەوەی دەستبەجێی ستیکەر، گیف، فۆڕوەرد، لینک و جنێو بۆ ئەندامان)
+    # 🛡️ ۲. ئاسایشی گروپ: پشکنینی زیرەکی بینراو بە Google Gemini Vision AI
     is_user_admin = is_admin(chat_id, user_id)
+
+    # پشکنینی ستیکەر و گیف بە چاوی ژیریی دەستکرد (تەنها سێکسی و +18 دەسڕدرێتەوە)
+    is_blocked, violation_reason = is_nsfw_media_gemini(msg)
+    if is_blocked:
+        delete_message(chat_id, msg_id)
+        if not is_user_admin:
+            cnt = add_user_warning(chat_id, user_id)
+            send_message(chat_id, f"⚠️ {display_name} {violation_reason} قەدەغەیە! ئاگاداری: ({cnt}/{MAX_WARNINGS})")
+            if cnt >= MAX_WARNINGS:
+                set_user_mute(chat_id, user_id, AUTO_MUTE_MINUTES)
+                send_message(chat_id, f"🚫 {display_name} بەهۆی ناردنی شتی نەشیاو، بۆ ماوەی ١ کاتژمێر لە چاتکردن بێدەنگ کرا!")
+        return
 
     if not is_user_admin:
         violation = ""
 
-        # ١. ستیکەر (هەموو جۆرە ستیکەرێک بۆ ئەندامان قەدەغەیە تا هیچ شتێکی نەشیاو نەیەتە ناو گروپ)
-        if "sticker" in msg:
-            violation = "ناردنی ستیکەر 🚫"
-
-        # ٢. گیف (GIF)
-        elif "animation" in msg:
-            violation = "ناردنی گیف (GIF) 🚫"
-
-        # ٣. فۆڕوەرد لە کەناڵ یان چاتی تر
-        elif is_forwarded_message(msg):
+        # فۆڕوەرد لە کەناڵ و چاتی تر
+        if is_forwarded_message(msg):
             violation = "ناردنی فۆڕوەرد (Forward) لە کەناڵ یان چاتی تر 🔗"
 
-        # ٤. لینک و ڕیکلام
+        # لینک و ڕیکلام
         elif contains_link_or_spam(msg, text):
             violation = "ناردنی لینک یان ریکلام 🔗"
 
-        # ٥. قسەی ناشرین و جنێو
+        # قسەی ناشرین و جنێو
         elif contains_bad_word(text):
             violation = "قسەی ناشرین 🤬"
-
-        # ٦. ڤیدیۆی بێ نووسین
-        elif "video" in msg and not text:
-            violation = "ناردنی ڤیدیۆ بەبێ نووسین 🎥"
 
         if violation:
             delete_message(chat_id, msg_id)
@@ -857,8 +852,7 @@ def webhook():
             if "chat_member" in data:
                 cm = data["chat_member"]
                 new_st = cm.get("new_chat_member", {}).get("status")
-                old_st = cm.get("old_chat_member", {}).get("status")
-                if new_st == "member" and old_st in ["left", "kicked", "restricted", None]:
+                if new_st in ["member", "administrator"]:
                     c_id = cm.get("chat", {}).get("id")
                     u_info = cm.get("new_chat_member", {}).get("user", {})
                     if c_id and u_info and not u_info.get("is_bot"):
